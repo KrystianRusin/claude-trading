@@ -15,6 +15,12 @@
   "risk.max_gross_exposure_pct": {"type": "number", "min": 5, "max": 100},
   "risk.max_net_exposure_pct": {"type": "number", "min": 0, "max": 100},
   "risk.max_daily_loss_pct": {"type": "number", "min": 0.5, "max": 5.0},
+  "universe.max_symbols": {"type": "int", "min": 20, "max": 1000},
+  "universe.min_price": {"type": "number", "min": 5, "max": 1000},
+  "universe.min_dollar_volume": {"type": "number", "min": 0, "max": 1000000000},
+  "universe.volume_days": {"type": "int", "min": 5, "max": 60},
+  "universe.max_scored_per_day": {"type": "int", "min": 1, "max": 200},
+  "universe.batch_size": {"type": "int", "min": 5, "max": 40},
   "data_feed": {"enum": ["iex"]},
   "timezone": {"enum": ["America/New_York"]}
 }

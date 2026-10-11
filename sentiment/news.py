@@ -1,7 +1,7 @@
-"""News archive: Alpaca News API articles for the watchlist, one JSON line each in state/news/<date>.jsonl.
+"""News archive: Alpaca News API articles for the universe, one JSON line each in state/news/<date>.jsonl.
 
-    python news.py fetch     archive articles published since the last fetch
-    python news.py status    articles per day and symbol for the last week
+    python news.py fetch     archive articles for the universe published since the last fetch
+    python news.py status    articles per day for the last week, and the most covered symbols
 
 Articles are bucketed by publish date in America/New_York and deduplicated by id across runs.
 Article text is stored as data and never interpreted.
@@ -84,13 +84,15 @@ def load(start, end, symbols=None):
     return sorted(out, key=lambda a: a["published_at"])
 
 
-def status(today, symbols, days=7):
-    lines = [f"{'date':<12}{'articles':>9}  per symbol"]
+def status(today, symbols, days=7, top=8):
+    """Articles per day, how many universe symbols had news, and the most covered ones."""
+    lines = [f"{'date':<12}{'articles':>9}{'symbols':>9}  most covered"]
+    wanted = set(symbols)
     for d in _days(today - timedelta(days=days - 1), today):
         articles = read_day(d)
-        counts = Counter(s for a in articles for s in a["symbols"] if s in symbols)
-        per = " ".join(f"{s}:{n}" for s, n in sorted(counts.items()))
-        lines.append(f"{d.isoformat():<12}{len(articles):>9}  {per}")
+        counts = Counter(s for a in articles for s in a["symbols"] if s in wanted)
+        per = " ".join(f"{s}:{n}" for s, n in sorted(counts.items(), key=lambda x: (-x[1], x[0]))[:top])
+        lines.append(f"{d.isoformat():<12}{len(articles):>9}{len(counts):>9}  {per}")
     last = _read_cursor()
     lines.append(f"last fetch: {last.isoformat(timespec='minutes') if last else 'never'}")
     return "\n".join(lines)
@@ -98,6 +100,7 @@ def status(today, symbols, days=7):
 
 def main(argv=None):
     import config
+    import universe
     from broker import make_broker
     from logger import notify, setup_logging
 
@@ -106,7 +109,7 @@ def main(argv=None):
     args = ap.parse_args(argv)
     config.init_state()
     log = setup_logging("news")
-    symbols = config.load_watchlist()
+    symbols = universe.load(config.load_watchlist())
     now = datetime.now(ET)
     if args.command == "status":
         print(status(now.date(), symbols))

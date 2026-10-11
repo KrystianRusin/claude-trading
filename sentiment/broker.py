@@ -19,6 +19,9 @@ import paths
 
 ET = ZoneInfo("America/New_York")
 BAR_COLUMNS = ["open", "high", "low", "close", "volume"]
+STOCK_EXCHANGES = {"NYSE", "NASDAQ", "AMEX"}
+BARS_BATCH = 1000
+NEWS_BATCH = 100
 OPEN_STATUSES = {"new", "accepted", "pending_new", "partially_filled", "held", "accepted_for_bidding",
                  "pending_cancel", "pending_replace", "done_for_day"}
 
@@ -73,6 +76,10 @@ class Order:
     @property
     def is_open(self):
         return self.status in OPEN_STATUSES
+
+
+def chunks(items, size):
+    return [items[i:i + size] for i in range(0, len(items), size)]
 
 
 def assert_paper_url(url):
@@ -181,15 +188,18 @@ class AlpacaBroker:
         return [d.date for d in self.trading.get_calendar(GetCalendarRequest(start=start, end=end))]
 
     def daily_bars(self, symbols, start, end):
-        """{symbol: daily bars indexed by date}. `end` is capped 16 minutes ago for free IEX data."""
+        """{symbol: daily bars indexed by date}, fetched in batches. `end` is capped 16 minutes ago for free IEX data."""
         from alpaca.data.enums import DataFeed
         from alpaca.data.requests import StockBarsRequest
         from alpaca.data.timeframe import TimeFrame
 
         end = min(to_et(end), datetime.now(ET) - timedelta(minutes=16))
-        req = StockBarsRequest(symbol_or_symbols=list(symbols), timeframe=TimeFrame.Day,
-                               start=to_et(start), end=end, feed=DataFeed(self.feed))
-        return daily_frames(self.data.get_stock_bars(req).df)
+        out = {}
+        for batch in chunks(list(symbols), BARS_BATCH):
+            req = StockBarsRequest(symbol_or_symbols=batch, timeframe=TimeFrame.Day,
+                                   start=to_et(start), end=end, feed=DataFeed(self.feed))
+            out.update(daily_frames(self.data.get_stock_bars(req).df))
+        return out
 
     def latest_prices(self, symbols):
         from alpaca.data.enums import DataFeed
@@ -204,12 +214,27 @@ class AlpacaBroker:
         a = self.trading.get_asset(symbol)
         return bool(a.tradable), bool(a.shortable), bool(a.easy_to_borrow)
 
+    def list_equities(self):
+        """Active, tradable stocks on NYSE, NASDAQ and NYSE American as dicts."""
+        from alpaca.trading.enums import AssetClass, AssetStatus
+        from alpaca.trading.requests import GetAssetsRequest
+
+        assets = self.trading.get_all_assets(GetAssetsRequest(status=AssetStatus.ACTIVE,
+                                                              asset_class=AssetClass.US_EQUITY))
+        return [{"symbol": a.symbol, "name": a.name or "", "exchange": _value(a.exchange),
+                 "shortable": bool(a.shortable), "easy_to_borrow": bool(a.easy_to_borrow)}
+                for a in assets if a.tradable and _value(a.exchange) in STOCK_EXCHANGES]
+
     def get_news(self, symbols, start, end):
+        """Articles mentioning any of `symbols`, requested in batches; one article may come back twice."""
         from alpaca.data.requests import NewsRequest
 
-        req = NewsRequest(symbols=",".join(symbols), start=to_et(start), end=to_et(end), sort="asc",
-                          include_content=False)
-        return [article_from_alpaca(n) for n in self.news.get_news(req).data.get("news", [])]
+        out = []
+        for batch in chunks(list(symbols), NEWS_BATCH):
+            req = NewsRequest(symbols=",".join(batch), start=to_et(start), end=to_et(end), sort="asc",
+                              include_content=False)
+            out += [article_from_alpaca(n) for n in self.news.get_news(req).data.get("news", [])]
+        return out
 
     def _submit(self, req):
         from alpaca.common.exceptions import APIError

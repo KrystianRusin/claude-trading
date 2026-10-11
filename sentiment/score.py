@@ -1,10 +1,13 @@
-"""Daily sentiment scores: archived news in, one validated score per watchlist symbol out.
+"""Daily sentiment scores: archived news in, one validated score per symbol with news out.
 
     python score.py run          score news since the previous scoring run into state/scores/<today>.json
     python score.py show [DATE]  print a score file
 
 Claude runs headless (`claude -p`) with no tools as a one-shot classifier. Its output is parsed and
 schema-checked here; nothing it writes is executed. Score files are never edited once written.
+
+Only universe symbols with news in the window are scored (open positions first, then the most
+covered), in batches so one bad reply loses one batch rather than the day.
 """
 import argparse
 import hashlib
@@ -15,12 +18,13 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from collections import Counter
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import news
 import paths
-from broker import ET, to_et
+from broker import ET, chunks, to_et
 
 MODEL = "claude-haiku-5-5"
 MAX_PER_SYMBOL = 15
@@ -160,33 +164,60 @@ def write_scores(day, record):
     return path
 
 
-def score(now, symbols, caller=call_claude, log=None):
-    """Score the news since the previous run. Returns the score file path, or None if nothing was written."""
-    if paths.score_file(now.date()).exists():
-        raise ScoringError(f"{paths.score_file(now.date())} already exists")
-    start = window_start(now)
-    articles = news.load(start, now, symbols)
-    model_input = build_input(articles, symbols, start, now)
-    prompt = prompt_text()
-    record = {"date": now.date().isoformat(), "generated_at": now.isoformat(), "model": MODEL,
-              "prompt_sha256": sha256(prompt), "input_articles": sum(len(v) for v in model_input["symbols"].values()),
-              "window_start": start.isoformat(), "window_end": now.isoformat()}
-    if record["input_articles"] == 0:
-        scores = {s: {"score": 0, "confidence": 1.0, "reason": "no news", "article_ids": []} for s in symbols}
-        return write_scores(now.date(), record | {"model": "none", "scores": scores})
+def select_symbols(articles, universe, priority=(), limit=60):
+    """(symbols to score, how many had news): universe symbols with news, open positions first, then most covered."""
+    wanted = set(universe)
+    counts = Counter(sym for a in articles for sym in set(a["symbols"]) if sym in wanted)
+    held = set(priority)
+    ranked = sorted(counts, key=lambda sym: (sym not in held, -counts[sym], sym))
+    return ranked[:limit], len(counts)
+
+
+def score_batch(model_input, prompt, caller, log=None):
+    """Validated scores for one batch, retrying once; None when both attempts fail."""
     input_json = json.dumps(model_input, ensure_ascii=False)
-    problems = []
     for attempt in (1, 2):
         try:
             scores, errors = validate(extract_json(caller(prompt, input_json)), model_input)
         except ScoringError as e:
             scores, errors = None, [str(e)]
         if scores is not None:
-            return write_scores(now.date(), record | {"scores": scores})
-        problems.append(f"attempt {attempt}: " + "; ".join(errors[:10]))
+            return scores
         if log:
-            log.warning("scoring attempt %d failed: %s", attempt, "; ".join(errors[:10]))
-    raise ScoringError("scoring failed twice, no score file written: " + " | ".join(problems))
+            log.warning("scoring attempt %d for %s failed: %s", attempt, ",".join(model_input["symbols"]),
+                        "; ".join(errors[:10]))
+    return None
+
+
+def score(now, universe, ucfg, priority=(), caller=call_claude, log=None):
+    """Score the news since the previous run in batches. Returns the score file path.
+
+    Symbols in a batch that fails twice are left out and listed in `failed_symbols`. Raises, writing
+    nothing, when every batch fails.
+    """
+    if paths.score_file(now.date()).exists():
+        raise ScoringError(f"{paths.score_file(now.date())} already exists")
+    start = window_start(now)
+    articles = news.load(start, now, universe)
+    chosen, with_news = select_symbols(articles, universe, priority, ucfg["max_scored_per_day"])
+    prompt = prompt_text()
+    batches = chunks(chosen, ucfg["batch_size"])
+    record = {"date": now.date().isoformat(), "generated_at": now.isoformat(), "model": MODEL if chosen else "none",
+              "prompt_sha256": sha256(prompt), "window_start": start.isoformat(), "window_end": now.isoformat(),
+              "universe_size": len(universe), "symbols_with_news": with_news, "batches": len(batches)}
+    scores, failed, n_articles = {}, [], 0
+    for batch in batches:
+        model_input = build_input(articles, batch, start, now)
+        n_articles += sum(len(v) for v in model_input["symbols"].values())
+        result = score_batch(model_input, prompt, caller, log)
+        if result is None:
+            failed += batch
+        else:
+            scores.update(result)
+    if chosen and not scores:
+        raise ScoringError(f"all {len(batches)} scoring batches failed twice, no score file written")
+    return write_scores(now.date(), record | {"input_articles": n_articles, "failed_symbols": failed,
+                                              "scores": scores})
 
 
 def load_scores(day):
@@ -203,8 +234,9 @@ def load_scores(day):
 
 def main(argv=None):
     import config
+    import universe
     from broker import make_broker
-    from logger import notify, setup_logging
+    from logger import Book, notify, setup_logging
 
     ap = argparse.ArgumentParser(description="daily sentiment scoring")
     ap.add_argument("command", choices=["run", "show"])
@@ -217,9 +249,11 @@ def main(argv=None):
         day = date.fromisoformat(args.day) if args.day else now.date()
         print(paths.score_file(day).read_text(encoding="utf-8") if paths.score_file(day).exists() else "no score file")
         return 0
-    symbols = config.load_watchlist()
+    cfg = config.load_config()
+    symbols = universe.load(config.load_watchlist())
+    held = [r["symbol"] for r in Book(paths.book_dir(cfg["mode"]), cfg["mode"]).positions()]
     try:
-        broker = make_broker(config.load_config(), verify_account=False)
+        broker = make_broker(cfg, verify_account=False)
         log.info("news fetch before scoring: %d new articles", news.fetch(broker, symbols, now))
         if now.date() not in broker.trading_days(now.date(), now.date()):
             log.info("market closed today; not scoring, the next run covers this news")
@@ -227,14 +261,18 @@ def main(argv=None):
     except Exception:
         log.warning("news fetch or calendar check failed; scoring the archive as it is", exc_info=True)
     try:
-        path = score(now, symbols, log=log)
+        path = score(now, symbols, cfg["universe"], priority=held, log=log)
     except Exception as e:
         log.exception("scoring failed")
         notify(f"scoring failed, no entries today: {e}")
         return 1
     record = json.loads(path.read_text(encoding="utf-8"))
     nonzero = {s: v["score"] for s, v in record["scores"].items() if v["score"]}
-    log.info("wrote %s: %d articles, non-zero scores %s", path.name, record["input_articles"], nonzero)
+    log.info("wrote %s: %d of %d symbols with news scored from %d articles, non-zero %s", path.name,
+             len(record["scores"]), record["symbols_with_news"], record["input_articles"], nonzero)
+    if record["failed_symbols"]:
+        log.warning("batches failed, not scored today: %s", ",".join(record["failed_symbols"]))
+        notify(f"some scoring batches failed: {len(record['failed_symbols'])} symbols not scored")
     return 0
 
 

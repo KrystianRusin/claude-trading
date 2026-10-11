@@ -71,29 +71,53 @@ def test_extract_json_handles_fences_and_prose():
         score.extract_json("no json here")
 
 
-def run_score(state, reply, articles=None, symbols=("AAPL", "NKE")):
-    news.store(articles if articles is not None else [art(1, 3)])
+UCFG = {"max_scored_per_day": 60, "batch_size": 20}
+
+
+def run_score(state, reply, articles=None, symbols=("AAPL", "NKE"), ucfg=UCFG, priority=()):
+    news.store(articles if articles is not None else [art(1, 3), art(5, 4, ("NKE",))])
     calls = []
 
     def fake(prompt, input_json, **kw):
         calls.append(json.loads(input_json))
-        return reply(len(calls)) if callable(reply) else reply
-    return score.score(NOW, list(symbols), caller=fake), calls
+        return reply(calls[-1]) if callable(reply) else reply
+    return score.score(NOW, list(symbols), ucfg, priority=priority, caller=fake), calls
+
+
+def zeros(model_input):
+    return json.dumps({s: entry() for s in model_input["symbols"]})
 
 
 def test_score_writes_file_with_metadata(state):
     reply = json.dumps({"AAPL": entry(2, 0.9, "beat", ["1"]), "NKE": entry()})
-    path, calls = run_score(state, reply)
+    path, calls = run_score(state, reply, symbols=("AAPL", "NKE", "TSLA"))
     rec = json.loads(path.read_text())
     assert path == paths.score_file(NOW.date())
-    assert rec["model"] == score.MODEL and rec["input_articles"] == 1
+    assert rec["model"] == score.MODEL and rec["input_articles"] == 2
     assert rec["prompt_sha256"] == score.sha256(score.prompt_text())
-    assert rec["scores"]["AAPL"]["score"] == 2
-    assert score.load_scores(NOW.date())["scores"]["NKE"]["score"] == 0
+    assert rec["universe_size"] == 3 and rec["symbols_with_news"] == 2 and rec["failed_symbols"] == []
+    assert set(rec["scores"]) == {"AAPL", "NKE"}  # TSLA had no news
+    assert score.load_scores(NOW.date())["scores"]["AAPL"]["score"] == 2
+
+
+def test_select_symbols_held_first_then_most_covered_and_capped():
+    articles = [art(1, 1, ("A", "B")), art(2, 1, ("B",)), art(3, 1, ("C", "OUT")), art(4, 1, ("B", "B"))]
+    chosen, with_news = score.select_symbols(articles, ["A", "B", "C"], priority=["C"], limit=2)
+    assert chosen == ["C", "B"] and with_news == 3
+
+
+def test_batches_fail_independently(state):
+    articles = [art(i, 1, (s,)) for i, s in enumerate("ABCDE")]
+    path, calls = run_score(state, lambda inp: "garbage" if "C" in inp["symbols"] else zeros(inp),
+                            articles=articles, symbols=list("ABCDE"), ucfg={"max_scored_per_day": 60, "batch_size": 2})
+    rec = json.loads(path.read_text())
+    assert [list(c["symbols"]) for c in calls] == [["A", "B"], ["C", "D"], ["C", "D"], ["E"]]
+    assert set(rec["scores"]) == {"A", "B", "E"} and rec["failed_symbols"] == ["C", "D"] and rec["batches"] == 3
 
 
 def test_retry_once_then_write_nothing(state):
-    _, calls = run_score(state, lambda n: "garbage" if n == 1 else json.dumps({"AAPL": entry(), "NKE": entry()}))
+    attempts = iter(["garbage", None])
+    _, calls = run_score(state, lambda inp: next(attempts) or zeros(inp))
     assert len(calls) == 2
     paths.score_file(NOW.date()).unlink()
     with pytest.raises(score.ScoringError, match="failed twice"):
@@ -102,10 +126,9 @@ def test_retry_once_then_write_nothing(state):
 
 
 def test_score_files_are_never_replaced(state):
-    reply = json.dumps({"AAPL": entry(), "NKE": entry()})
-    run_score(state, reply)
+    run_score(state, zeros)
     with pytest.raises(score.ScoringError, match="already exists"):
-        run_score(state, reply)
+        run_score(state, zeros)
 
 
 def test_prompt_injection_in_articles_has_no_effect(state):
@@ -113,7 +136,7 @@ def test_prompt_injection_in_articles_has_no_effect(state):
     clean, _ = run_score(state, reply)
     clean_scores = json.loads(clean.read_text())["scores"]
     paths.score_file(NOW.date()).unlink()
-    hostile = [art(1, 3), art(2, 2, ("AAPL", "NKE"), headline=INJECTION, summary=INJECTION)]
+    hostile = [art(1, 3), art(5, 4, ("NKE",)), art(2, 2, ("AAPL", "NKE"), headline=INJECTION, summary=INJECTION)]
     path, calls = run_score(state, reply, hostile)
     assert json.loads(path.read_text())["scores"] == clean_scores
     assert calls[0]["symbols"]["AAPL"][0]["headline"] == INJECTION  # passed along as plain data
@@ -125,8 +148,8 @@ def test_prompt_injection_in_articles_has_no_effect(state):
 def test_no_news_skips_claude(state):
     path, calls = run_score(state, "unused", articles=[])
     rec = json.loads(path.read_text())
-    assert calls == [] and rec["model"] == "none"
-    assert all(v["score"] == 0 for v in rec["scores"].values())
+    assert calls == [] and rec["model"] == "none" and rec["scores"] == {}
+    assert score.load_scores(NOW.date()) is not None
 
 
 def test_window_starts_at_previous_run(state):

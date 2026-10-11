@@ -28,6 +28,10 @@ def watchlist_file():
     return state_dir() / "watchlist.json"
 
 
+def universe_file():
+    return state_dir() / "universe.json"
+
+
 def news_dir():
     return state_dir() / "news"
 

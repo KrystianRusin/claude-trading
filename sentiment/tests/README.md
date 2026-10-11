@@ -17,7 +17,8 @@ defaults, and moves the `HALT` file there.
 | `test_config.py` | Config bounds, state init, watchlist |
 | `test_broker.py` | Paper-only endpoint, separate-account check, bar and news conversion |
 | `test_news.py` | Dedupe, date bucketing, fetch cursor, status |
-| `test_score.py` | Input building, output validation, retries, prompt injection, score files |
+| `test_universe.py` | Liquidity screen, universe file, watchlist merge |
+| `test_score.py` | Symbol selection, batches, output validation, retries, prompt injection, score files |
 | `test_risk.py` | ATR, stops, sizing, book limits, daily loss |
 | `test_rules.py` | Entry signals, hold days, exit reasons, ranking, entry planning |
 | `test_trader.py` | Run and close jobs, restart reconciliation, kill switch, loss limit, replay |

@@ -1,7 +1,7 @@
 # Sentiment Swing Trader
 
-A paper trading system that archives company news, has Claude score each watchlist stock's news
-from -2 to +2 every morning, and trades those scores with fixed rules, holding positions for days.
+A paper trading system that archives company news, has Claude score the news of the most liquid
+US stocks from -2 to +2 every morning, and trades those scores with fixed rules, holding positions for days.
 It runs under cron on a Raspberry Pi next to the paper-trader, on its own Alpaca paper account, so
 the two books can be compared over the same period.
 
@@ -12,17 +12,23 @@ real borrow costs, and results over a short window are not evidence of skill.
 
 ## How it works
 
-1. `news.py` archives Alpaca News API articles for the watchlist into `state/news/<date>.jsonl`.
-2. `score.py` sends the news since the previous scoring run to headless Claude Code
-   (`claude -p`, Haiku, no tools) with the fixed instructions in `SCORING_PROMPT.md`. Python checks
-   the reply against a strict schema and writes `state/scores/<date>.json`. Score files are never
-   edited. If the reply is invalid twice, nothing is written and the trader makes no entries that day.
-3. `trader.py run` (09:45) exits positions held `max_hold_days` trading days or whose score flipped
+1. `universe.py` screens every stock listed on NYSE, NASDAQ and NYSE American each night and
+   keeps the 400 with the highest average dollar volume over 20 days, priced at $5 or more, in
+   `state/universe.json`. The watchlist is always included.
+2. `news.py` archives Alpaca News API articles for the universe into `state/news/<date>.jsonl`.
+3. `score.py` picks the universe stocks with news since the previous scoring run (open positions
+   first, then the most covered, at most 60) and sends their news to headless Claude Code
+   (`claude -p`, Haiku, no tools) in batches of 20, with the fixed instructions in
+   `SCORING_PROMPT.md`. Python checks each reply against a strict schema and writes
+   `state/scores/<date>.json`. Score files are never edited. A batch whose reply is invalid twice
+   is left out and listed in `failed_symbols`; if every batch fails, nothing is written and the
+   trader makes no entries that day.
+4. `trader.py run` (09:45) exits positions held `max_hold_days` trading days or whose score flipped
    sign, then enters longs on +2 (or +1 with confidence >= 0.7) and shorts on -2/-1, sized at 5% of
    equity, each with a GTC stop at 2 x the 14-day ATR.
-4. `trader.py close` (16:15) records fills and stop-outs, marks positions to market, checks the
+5. `trader.py close` (16:15) records fills and stop-outs, marks positions to market, checks the
    daily loss limit and writes the daily summary.
-5. `analyze.py` and `compare.py` (18:30) write the performance report and the comparison with the
+6. `analyze.py` and `compare.py` (18:30) write the performance report and the comparison with the
    paper-trader.
 
 Claude never places orders, edits code or config, or writes files. It only prints scores.
@@ -59,6 +65,7 @@ logged or printed.
 | 09:45 weekdays | `trader.py run` |
 | 16:15 weekdays | `trader.py close` |
 | 18:30 weekdays | `analyze.py`, `compare.py` |
+| 19:15 weekdays | `universe.py build` |
 | 03:00 daily | `scripts/backup.sh` |
 
 The times avoid the paper-trader's 09:00 start and 17:00 review.
@@ -89,7 +96,9 @@ fills, books in `state/dry_run/`. After about 30 scored sessions, switch to pape
 .venv/bin/python analyze.py --book dry_run
 ```
 
-- `news.py fetch | status`: archive news, or show articles per day and symbol.
+- `universe.py build | show`: rebuild the universe, or print it. Its limits are the `universe`
+  section of `state/config.json`.
+- `news.py fetch | status`: archive news, or show articles per day and the most covered symbols.
 - `score.py run | show [DATE]`: score today's news, or print a score file.
 - `trader.py run | close [--dry-run] [--force]`: `--force` ignores the calendar and run time.
 - `trader.py replay --from DATE --to DATE`: reruns the rules over saved score files and daily bars
@@ -120,7 +129,8 @@ all positions. Delete it to resume.
 
 | Path | What |
 |---|---|
-| `config.default.json`, `watchlist.default.json` | Defaults copied into `state/` once |
+| `config.default.json`, `watchlist.default.json` | Defaults copied into `state/` once; watchlist symbols are always in the universe |
+| `state/universe.json` | Tonight's screened universe |
 | `config_bounds.json` | Hard limits for the config |
 | `state/news/`, `state/scores/` | News archive and score files |
 | `state/trades.csv` | One row per closed trade, with score, config version and prompt hash |

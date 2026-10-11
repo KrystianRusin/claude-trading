@@ -8,6 +8,7 @@ A file named HALT in the repo root makes every job place no entries and close al
 """
 import argparse
 import contextlib
+import json
 import sys
 from datetime import date, datetime, time, timedelta
 
@@ -438,6 +439,15 @@ class ReplayData:
         return True, True, True
 
 
+def scored_symbols(start, end):
+    """Every symbol with a score in the score files dated from `start` to `end`."""
+    out = set()
+    for f in paths.scores_dir().glob("*.json"):
+        if start.isoformat() <= f.stem <= end.isoformat():
+            out |= set(json.loads(f.read_text(encoding="utf-8")).get("scores", {}))
+    return sorted(out)
+
+
 def replay(start, end, cfg, bars, log):
     """Run the rules day by day over saved score files and bars into state/replay/. Returns the book."""
     from simbroker import SimBroker
@@ -477,7 +487,7 @@ def main(argv=None):
         if args.command == "replay":
             if not (args.start and args.end):
                 ap.error("replay needs --from and --to")
-            symbols = config.load_watchlist()
+            symbols = scored_symbols(args.start, args.end)
             try:
                 source = make_broker(cfg, verify_account=False)
             except Exception:
