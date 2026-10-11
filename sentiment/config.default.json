@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "mode": "dry_run",
+  "entry": {"min_score": 2, "min_confidence_at_score_1": 0.7, "allow_score_1": true,
+            "allow_shorts": true, "run_time": "09:45"},
+  "exit": {"max_hold_days": 5, "exit_on_score_flip": true,
+           "stop_atr_multiple": 2.0, "atr_days": 14},
+  "risk": {"position_pct_of_equity": 5, "max_positions": 10, "max_gross_exposure_pct": 60,
+           "max_net_exposure_pct": 40, "max_daily_loss_pct": 2.0},
+  "data_feed": "iex",
+  "timezone": "America/New_York"
+}
