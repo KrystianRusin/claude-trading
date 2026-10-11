@@ -28,8 +28,10 @@ real borrow costs, and results over a short window are not evidence of skill.
    equity, each with a GTC stop at 2 x the 14-day ATR.
 5. `trader.py close` (16:15) records fills and stop-outs, marks positions to market, checks the
    daily loss limit and writes the daily summary.
-6. `analyze.py` and `compare.py` (18:30) write the performance report and the comparison with the
-   paper-trader.
+6. `analyze.py`, `lifetime.py` and `compare.py` (18:30) write the daily report, the lifetime
+   aggregate and the comparison with the paper-trader.
+7. `review.py` (Fridays 19:45) gives Claude the week's evidence and has it update its lessons
+   memory, which the next scoring runs read.
 
 Claude never places orders, edits code or config, or writes files. It only prints scores.
 
@@ -65,7 +67,9 @@ logged or printed.
 | 09:45 weekdays | `trader.py run` |
 | 16:15 weekdays | `trader.py close` |
 | 18:30 weekdays | `analyze.py`, `compare.py` |
+| 18:30 weekdays | `lifetime.py` |
 | 19:15 weekdays | `universe.py build` |
+| 19:45 Fridays | `review.py run` |
 | 03:00 daily | `scripts/backup.sh` |
 
 The times avoid the paper-trader's 09:00 start and 17:00 review.
@@ -104,10 +108,40 @@ fills, books in `state/dry_run/`. After about 30 scored sessions, switch to pape
 - `trader.py replay --from DATE --to DATE`: reruns the rules over saved score files and daily bars
   into `state/replay/`, with simulated fills at the open and stops checked against daily bars.
 - `analyze.py [--book paper|dry_run|replay]`: report to `state/reports/report_<date>.md`.
+- `lifetime.py [--book paper|dry_run|replay]`: lifetime aggregate to `state/lifetime.md` and
+  `state/lifetime.json`.
+- `review.py run | show`: run the self-review now, or print the memory.
 - `compare.py [--book paper|dry_run]`: comparison to `state/comparison.md`, over overlapping days
   only. It calls a book better only when the 95% range of the daily return difference excludes zero.
 - `config.py`: create missing state files and validate the config.
 - `broker.py`: check the account, calendar, bars and news.
+
+## Lifetime stats and score calibration
+
+`state/lifetime.md` is rebuilt every night from the whole history: return, volatility, Sharpe,
+drawdown, best and worst day, win rate, expectancy with a 95% range, profit factor, average hold,
+and trade breakdowns by score, confidence, side, exit reason, month and memory version.
+
+It also measures **score calibration**: for every score ever given, traded or not, the stock's
+return from that day's open to the open `max_hold_days` trading days later. With up to 60 scores a
+day, this answers "do the scores carry information?" much sooner than the trades alone can.
+
+## Memory and the weekly review
+
+Every Friday `review.py` sends Claude (Sonnet, no tools) the lifetime stats, the calibration of
+scores whose outcome is new since the last review, and the most instructive examples: the biggest
+moves with a score, against a score, and on a score of 0, each with its reason and headlines.
+Claude replies with JSON only: up to 12 lessons, each with its evidence and a confidence, plus
+"working" and "not working" lists. Python validates the reply and writes `state/memory.md`;
+an invalid reply leaves the old memory in place. The review is skipped until at least
+`memory.min_new_outcomes` new outcomes exist.
+
+Scoring appends the lessons to `SCORING_PROMPT.md` as advisory notes. Each score file and trade
+records `memory_sha256`, so the report and lifetime stats show results per memory version. Set
+`memory.use_in_scoring` to `false` in `state/config.json` to score without the lessons.
+
+The lessons only cover how to read news. Claude still cannot change the trading rules, the config
+or any file.
 
 ## Stopping
 
@@ -136,7 +170,11 @@ all positions. Delete it to resume.
 | `state/trades.csv` | One row per closed trade, with score, config version and prompt hash |
 | `state/orders.csv` | Every submit, fill, cancel, reject and skipped entry |
 | `state/positions.csv` | Open positions and their stops |
-| `state/daily_summary.csv` | One row per trading day |
+| `state/daily_summary.csv` | One row per trading day: equity, the day's P&L split into realized (trades closed that day) and unrealized (open positions at the close), exposure, entries and exits |
+| `state/reports/report_<date>.md` | Today's P&L, entries and exits, then all-time stats and breakdowns |
+| `state/lifetime.md`, `state/lifetime.json` | All-time aggregate and score calibration, rewritten nightly |
+| `state/memory.md`, `state/memory.json` | Claude's current lessons |
+| `state/memory_history/` | Every version of the memory |
 | `state/sentiment.log` | Warnings and errors with tracebacks |
 | `state/cron.log` | All cron job output |
 | `state/dry_run/`, `state/replay/` | Simulated books |

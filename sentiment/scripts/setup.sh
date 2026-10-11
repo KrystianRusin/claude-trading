@@ -163,8 +163,9 @@ cron_lines="*/30 7-20 * * 1-5 $RUN $PY news.py fetch >> $LOG 2>&1 $CRON_TAG
 30 6 * * 1-5 . $SECRETS; $RUN $PY score.py run >> $LOG 2>&1 $CRON_TAG
 45 9 * * 1-5 $RUN $PY trader.py run >> $LOG 2>&1 $CRON_TAG
 15 16 * * 1-5 $RUN $PY trader.py close >> $LOG 2>&1 $CRON_TAG
-30 18 * * 1-5 $RUN $PY analyze.py >> $LOG 2>&1 && $PY compare.py >> $LOG 2>&1 $CRON_TAG
+30 18 * * 1-5 $RUN $PY analyze.py >> $LOG 2>&1; $PY lifetime.py >> $LOG 2>&1; $PY compare.py >> $LOG 2>&1 $CRON_TAG
 15 19 * * 1-5 $RUN $PY universe.py build >> $LOG 2>&1 $CRON_TAG
+45 19 * * 5 . $SECRETS; $RUN $PY review.py run >> $LOG 2>&1 $CRON_TAG
 0 3 * * * $REPO/scripts/backup.sh >> $LOG 2>&1 $CRON_TAG"
 existing=$(crontab -l 2>/dev/null || true)
 { grep -vF "$CRON_TAG" <<<"$existing" || true; echo "$cron_lines"; } | crontab -
@@ -179,8 +180,9 @@ Schedule (local time, Eastern):
   scoring      06:30 weekdays
   trader run   09:45 weekdays (exits early on holidays)
   trader close 16:15 weekdays
-  reports      18:30 weekdays (state/reports/, state/comparison.md)
+  reports      18:30 weekdays (state/reports/, state/lifetime.md, state/comparison.md)
   universe     19:15 weekdays (state/universe.json)
+  review       19:45 Fridays (state/memory.md)
   backup       03:00 daily (backups/)
 
 Logs: state/cron.log (everything), state/sentiment.log (warnings and errors).

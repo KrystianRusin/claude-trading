@@ -102,7 +102,30 @@ def spy_return(spy, start, end):
     return float(window["close"].iloc[-1]) / base - 1
 
 
-def build_report(trades, summary, spy=None, title="Sentiment trader report"):
+def today_section(trades, summary, orders):
+    """What happened on the latest summary day: P&L split, entries and exits."""
+    day = summary.iloc[-1]
+    d = day["date"]
+    lines = [f"## Today ({d})", ""]
+    if "day_pnl" in summary.columns and pd.notna(day.get("day_pnl")):
+        lines.append(f"- P&L: {float(day['day_pnl']):+,.2f} USD ({float(day['day_return_pct']):+.2f}%), "
+                     f"realized {float(day['realized_pnl']):+,.2f}, open positions' unrealized "
+                     f"{float(day['unrealized_pnl']):+,.2f}")
+    lines.append(f"- Equity: {float(day['equity_start']):,.2f} to {float(day['equity_end']):,.2f}")
+    entries = [o for o in orders if o["date"] == d.isoformat() and o["event"] == "submit"
+               and o["client_order_id"].endswith("-entry")]
+    exits = trades[trades["exit_date"] == d]
+    lines.append(f"- Entries: {len(entries)}")
+    lines += [f"  - {o['symbol']} {o['side']} {o['qty']} at ~{o['price']} ({o['reason']})" for o in entries]
+    lines.append(f"- Exits: {len(exits)}")
+    for t in exits.itertuples():
+        result = (f"{float(t.pnl_pct):+.2f}% ({float(t.pnl_usd):+,.2f} USD)" if pd.notna(t.pnl_pct)
+                  else "no exit price")
+        lines.append(f"  - {t.symbol} {t.side}: {t.exit_reason}, {result}")
+    return lines + [""]
+
+
+def build_report(trades, summary, spy=None, title="Sentiment trader report", orders=()):
     priced = trades[pd.to_numeric(trades["pnl_pct"], errors="coerce").notna()].copy()
     priced["pnl_pct"] = priced["pnl_pct"].astype(float)
     priced["pnl_usd"] = priced["pnl_usd"].astype(float)
@@ -112,6 +135,8 @@ def build_report(trades, summary, spy=None, title="Sentiment trader report"):
         lines.append(f"Period: {returns.index[0]} to {returns.index[-1]} ({len(returns)} trading days).")
     lines.append(f"Closed trades: {len(trades)} ({len(trades) - len(priced)} without an exit price).")
     lines.append("")
+    if not summary.empty:
+        lines += today_section(trades, summary, list(orders))
     if len(priced) < MIN_TRADES:
         lines += [f"**Warning: only {len(priced)} priced trades. Under {MIN_TRADES}, none of these numbers "
                   "is evidence of anything.**", ""]
@@ -123,7 +148,7 @@ def build_report(trades, summary, spy=None, title="Sentiment trader report"):
     spy_ret = spy_return(spy, returns.index[0], returns.index[-1]) if not returns.empty else None
     rng = f" (95% range {lo:+.2f} to {hi:+.2f}, by entry date)" if lo is not None else ""
     lines += [
-        "## Summary", "",
+        "## All time", "",
         f"- Win rate: {len(wins) / len(priced):.0%}" if len(priced) else "- Win rate: n/a",
         f"- Average win: {wins['pnl_pct'].mean():+.2f}% / average loss: {losses['pnl_pct'].mean():+.2f}%"
         if len(wins) and len(losses) else "- Average win / loss: n/a",
@@ -138,8 +163,10 @@ def build_report(trades, summary, spy=None, title="Sentiment trader report"):
         priced["score_bucket"] = priced["score"].map(lambda s: "unknown" if pd.isna(s) else f"{int(s):+d}")
         priced["confidence_band"] = priced["confidence"].map(confidence_band)
         priced["prompt"] = priced["prompt_sha256"].fillna("unknown").astype(str).str[:12]
+        priced["memory"] = (priced["memory_sha256"] if "memory_sha256" in priced else pd.Series("", index=priced.index))
+        priced["memory"] = priced["memory"].fillna("").astype(str).str[:12].replace("", "none")
         for col, name in (("score_bucket", "Score"), ("confidence_band", "Confidence"), ("side", "Side"),
-                          ("exit_reason", "Exit reason"), ("symbol", "Symbol"), ("prompt", "Prompt sha256")):
+                          ("exit_reason", "Exit reason"), ("symbol", "Symbol"), ("prompt", "Prompt sha256"), ("memory", "Memory version")):
             lines += [f"## By {name.lower()}", "", _table(breakdown(priced, col), name), ""]
     lines.append("Paper fills are optimistic and paper shorts have no borrow costs. Not financial advice.")
     return "\n".join(lines) + "\n"
@@ -171,7 +198,9 @@ def main(argv=None):
     trades = read_trades_frame(d / "trades.csv")
     summary = read_summary(d / "daily_summary.csv")
     spy = load_spy(summary["date"].iloc[0], summary["date"].iloc[-1]) if not summary.empty else None
-    report = build_report(trades, summary, spy, title=f"Sentiment trader report ({book})")
+    from logger import Book
+    orders = Book(d, book).order_events()
+    report = build_report(trades, summary, spy, title=f"Sentiment trader report ({book})", orders=orders)
     paths.reports_dir().mkdir(parents=True, exist_ok=True)
     out = paths.reports_dir() / f"report_{datetime.now(ET).date().isoformat()}.md"
     out.write_text(report, encoding="utf-8")

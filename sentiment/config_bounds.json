@@ -21,6 +21,8 @@
   "universe.volume_days": {"type": "int", "min": 5, "max": 60},
   "universe.max_scored_per_day": {"type": "int", "min": 1, "max": 200},
   "universe.batch_size": {"type": "int", "min": 5, "max": 40},
+  "memory.use_in_scoring": {"type": "bool"},
+  "memory.min_new_outcomes": {"type": "int", "min": 5, "max": 1000},
   "data_feed": {"enum": ["iex"]},
   "timezone": {"enum": ["America/New_York"]}
 }

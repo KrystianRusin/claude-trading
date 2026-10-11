@@ -12,15 +12,16 @@ import paths
 
 TRADE_FIELDS = ["entry_date", "exit_date", "symbol", "side", "qty", "entry_price", "exit_price", "exit_reason",
                 "pnl_usd", "pnl_pct", "hold_days", "score", "confidence", "score_date", "config_version",
-                "prompt_sha256", "held_over_earnings"]
+                "prompt_sha256", "memory_sha256", "held_over_earnings"]
 EXIT_REASONS = ("hold", "flip", "stop", "halt", "loss_limit", "unknown")
 ORDER_FIELDS = ["timestamp", "date", "mode", "event", "symbol", "side", "qty", "order_type", "price",
                 "stop_price", "order_id", "client_order_id", "status", "reason"]
 POSITION_FIELDS = ["symbol", "side", "qty", "status", "entry_date", "entry_price", "entry_order_id",
                    "stop_order_id", "stop_price", "score", "confidence", "score_date", "config_version",
-                   "prompt_sha256", "exit_reason", "exit_order_id", "last_price", "unrealized_pnl"]
-SUMMARY_FIELDS = ["date", "equity_start", "equity_end", "positions", "gross_exposure", "net_exposure",
-                  "entries", "exits", "scored", "halted", "notes"]
+                   "prompt_sha256", "memory_sha256", "exit_reason", "exit_order_id", "last_price", "unrealized_pnl"]
+SUMMARY_FIELDS = ["date", "equity_start", "equity_end", "day_pnl", "day_return_pct", "realized_pnl",
+                  "unrealized_pnl", "positions", "gross_exposure", "net_exposure", "entries", "exits", "scored",
+                  "halted", "notes"]
 
 
 def trade_row(position, exit_date, exit_price, exit_reason, hold_days):
@@ -38,7 +39,8 @@ def trade_row(position, exit_date, exit_price, exit_reason, hold_days):
         "pnl_pct": round(100 * (exit_price / entry - 1) * direction, 4) if priced else "",
         "hold_days": hold_days, "score": position.get("score", ""), "confidence": position.get("confidence", ""),
         "score_date": position.get("score_date", ""), "config_version": position.get("config_version", ""),
-        "prompt_sha256": position.get("prompt_sha256", ""), "held_over_earnings": "",
+        "prompt_sha256": position.get("prompt_sha256", ""), "memory_sha256": position.get("memory_sha256", ""),
+        "held_over_earnings": "",
     }
 
 

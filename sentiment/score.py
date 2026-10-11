@@ -22,6 +22,7 @@ from collections import Counter
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+import memory
 import news
 import paths
 from broker import ET, chunks, to_et
@@ -189,8 +190,11 @@ def score_batch(model_input, prompt, caller, log=None):
     return None
 
 
-def score(now, universe, ucfg, priority=(), caller=call_claude, log=None):
+def score(now, universe, ucfg, priority=(), caller=call_claude, log=None, mem=None):
     """Score the news since the previous run in batches. Returns the score file path.
+
+    `mem` is the lessons memory to append to the prompt; prompt_sha256 covers SCORING_PROMPT.md and
+    memory_sha256 the lessons, so results can be split by either.
 
     Symbols in a batch that fails twice are left out and listed in `failed_symbols`. Raises, writing
     nothing, when every batch fails.
@@ -200,10 +204,13 @@ def score(now, universe, ucfg, priority=(), caller=call_claude, log=None):
     start = window_start(now)
     articles = news.load(start, now, universe)
     chosen, with_news = select_symbols(articles, universe, priority, ucfg["max_scored_per_day"])
-    prompt = prompt_text()
+    base = prompt_text()
+    block = memory.prompt_block(mem)
+    prompt = f"{base}\n\n{block}" if block else base
     batches = chunks(chosen, ucfg["batch_size"])
     record = {"date": now.date().isoformat(), "generated_at": now.isoformat(), "model": MODEL if chosen else "none",
-              "prompt_sha256": sha256(prompt), "window_start": start.isoformat(), "window_end": now.isoformat(),
+              "prompt_sha256": sha256(base), "memory_sha256": memory.sha256(mem) if block else "",
+              "window_start": start.isoformat(), "window_end": now.isoformat(),
               "universe_size": len(universe), "symbols_with_news": with_news, "batches": len(batches)}
     scores, failed, n_articles = {}, [], 0
     for batch in batches:
@@ -261,7 +268,8 @@ def main(argv=None):
     except Exception:
         log.warning("news fetch or calendar check failed; scoring the archive as it is", exc_info=True)
     try:
-        path = score(now, symbols, cfg["universe"], priority=held, log=log)
+        mem = memory.load() if cfg["memory"]["use_in_scoring"] else None
+        path = score(now, symbols, cfg["universe"], priority=held, log=log, mem=mem)
     except Exception as e:
         log.exception("scoring failed")
         notify(f"scoring failed, no entries today: {e}")

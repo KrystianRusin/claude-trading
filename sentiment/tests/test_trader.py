@@ -114,6 +114,9 @@ def test_stop_out_recorded_at_close(env):
     env.day(DAYS[41])
     (t,) = env.book.trades()
     assert t["exit_reason"] == "stop" and float(t["exit_price"]) == 96.0 and float(t["pnl_usd"]) == -200.0
+    day = env.book.summaries()[-1]
+    assert float(day["realized_pnl"]) == -200.0 and float(day["day_pnl"]) == -200.0
+    assert float(day["day_return_pct"]) == -0.2 and float(day["unrealized_pnl"]) == 0
 
 
 def test_gap_through_stop_fills_at_open(env):

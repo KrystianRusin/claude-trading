@@ -64,6 +64,26 @@ def comparison_file():
     return state_dir() / "comparison.md"
 
 
+def lifetime_file():
+    return state_dir() / "lifetime.md"
+
+
+def lifetime_json():
+    return state_dir() / "lifetime.json"
+
+
+def memory_file():
+    return state_dir() / "memory.md"
+
+
+def memory_json():
+    return state_dir() / "memory.json"
+
+
+def memory_history_dir():
+    return state_dir() / "memory_history"
+
+
 def log_file():
     return state_dir() / "sentiment.log"
 

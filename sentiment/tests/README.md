@@ -23,3 +23,4 @@ defaults, and moves the `HALT` file there.
 | `test_rules.py` | Entry signals, hold days, exit reasons, ranking, entry planning |
 | `test_trader.py` | Run and close jobs, restart reconciliation, kill switch, loss limit, replay |
 | `test_analytics.py` | Trade rows, report numbers, comparison verdicts |
+| `test_memory.py` | Score calibration, lifetime stats, today section, review validation, memory in scoring |

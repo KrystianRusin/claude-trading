@@ -294,7 +294,8 @@ class Trader:
                "entry_date": self.today.isoformat(), "entry_price": plan["price"], "entry_order_id": o.id,
                "stop_order_id": o.legs[0].id if o.legs else "", "stop_price": plan["stop_price"],
                "score": plan["score"], "confidence": plan["confidence"], "score_date": record["date"],
-               "config_version": self.cfg["version"], "prompt_sha256": record["prompt_sha256"]}
+               "config_version": self.cfg["version"], "prompt_sha256": record["prompt_sha256"],
+               "memory_sha256": record.get("memory_sha256", "")}
         self.rows.append(row)
         self.book.save_positions(self.rows)
         if fallback:
@@ -389,12 +390,17 @@ class Trader:
                   for r in self.rows if r["status"] != "pending"]
         gross, net = risk.exposure_pct(values, acct.equity)
         events = self.book.order_events(self.today)
+        closed = [t for t in self.book.trades() if t["exit_date"] == self.today.isoformat()]
+        realized = sum(float(t["pnl_usd"]) for t in closed if t["pnl_usd"] not in ("", None))
+        unrealized = sum(float(r.get("unrealized_pnl") or 0) for r in self.rows if r["status"] != "pending")
         self.book.daily_summary({
             "date": self.today.isoformat(), "equity_start": round(acct.last_equity, 2),
-            "equity_end": round(acct.equity, 2), "positions": len(values), "gross_exposure": round(gross, 2),
-            "net_exposure": round(net, 2),
+            "equity_end": round(acct.equity, 2), "day_pnl": round(acct.equity - acct.last_equity, 2),
+            "day_return_pct": round(risk.daily_pnl_pct(acct.equity, acct.last_equity), 4),
+            "realized_pnl": round(realized, 2), "unrealized_pnl": round(unrealized, 2),
+            "positions": len(values), "gross_exposure": round(gross, 2), "net_exposure": round(net, 2),
             "entries": sum(1 for e in events if e["event"] == "submit" and e["client_order_id"].endswith("-entry")),
-            "exits": sum(1 for t in self.book.trades() if t["exit_date"] == self.today.isoformat()),
+            "exits": len(closed),
             "scored": self.load_scores(self.today) is not None, "halted": halted, "notes": " ".join(notes)})
 
     def mark_to_market(self):
