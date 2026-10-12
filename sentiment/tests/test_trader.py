@@ -92,8 +92,10 @@ def test_exit_after_max_hold_days(env):
     env.day(DAYS[45])
     assert "AAPL" not in env.rows() and "AAPL" not in env.sim.list_positions()
     (t,) = env.book.trades()
-    assert t["exit_reason"] == "hold" and t["hold_days"] == "5" and t["score"] == "2"
-    assert t["exit_date"] == DAYS[45].isoformat() and float(t["pnl_usd"]) == 0
+    assert t["exit_reason"] == "time" and t["hold_days"] == "5" and t["score"] == "2"
+    assert t["date"] == t["exit_date"] == DAYS[45].isoformat() and float(t["pnl_usd"]) == 0
+    assert t["strategy"] == "sentiment_swing" and t["entry_minute_after_open"] == "15"
+    assert t["entry_time"].startswith(f"{D0}T09:45") and t["exit_time"].startswith(f"{DAYS[45]}T09:45")
     assert not env.sim.open_orders()
 
 
@@ -113,9 +115,11 @@ def test_stop_out_recorded_at_close(env):
     env.bars["AAPL"].loc[DAYS[41], ["open", "low"]] = [99.0, 90.0]
     env.day(DAYS[41])
     (t,) = env.book.trades()
-    assert t["exit_reason"] == "stop" and float(t["exit_price"]) == 96.0 and float(t["pnl_usd"]) == -200.0
+    assert t["exit_reason"] == "sl" and float(t["exit_price"]) == 96.0 and float(t["pnl_usd"]) == -200.0
+    assert float(t["pnl_r"]) == -1.0
     day = env.book.summaries()[-1]
-    assert float(day["realized_pnl"]) == -200.0 and float(day["day_pnl"]) == -200.0
+    assert float(day["gross_pnl"]) == -200.0 and float(day["day_pnl"]) == -200.0
+    assert (day["trades"], day["wins"], day["losses"]) == ("1", "0", "1")
     assert float(day["day_return_pct"]) == -0.2 and float(day["unrealized_pnl"]) == 0
 
 

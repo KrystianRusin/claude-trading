@@ -153,7 +153,7 @@ def review(now, book, cfg, caller=None, log=None, outcomes=None, fetch=True):
                 "updated_at": now.isoformat(), "model": MODEL, "prompt_sha256": score.sha256(prompt),
                 "outcomes_through": max(new["date"]).isoformat(),
                 "based_on": {"scores": int(len(outcomes)), "new_scores": int(len(new)),
-                             "trades": stats["priced_trades"]}})
+                             "trades": stats["trades"]}})
         problems.append(f"attempt {attempt}: " + "; ".join(errors[:10]))
         if log:
             log.warning("review attempt %d failed: %s", attempt, "; ".join(errors[:10]))

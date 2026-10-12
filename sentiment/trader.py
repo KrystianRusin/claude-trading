@@ -3,6 +3,7 @@
     python trader.py run [--dry-run] [--force]      09:45: exits, then entries
     python trader.py close [--dry-run] [--force]    16:15: fills, stop-outs, marks, daily summary
     python trader.py replay --from DATE --to DATE   rerun the rules over saved score files and daily bars
+    python trader.py positions [--dry-run]           current holdings at live prices (read-only)
 
 A file named HALT in the repo root makes every job place no entries and close all positions.
 """
@@ -19,6 +20,10 @@ from broker import ET, DuplicateOrderError, OTOUnavailableError, load_bars
 from logger import Book, notify, setup_logging, trade_row
 
 FETCH_DAYS = 45
+
+
+def _iso(ts):
+    return ts.isoformat(timespec="seconds")
 
 
 # ---- rules (pure) ----
@@ -41,9 +46,9 @@ def hold_days(entry_date, day, trading_days):
 
 
 def exit_reason(row, scores, held, exit_cfg):
-    """"hold", "flip" or None for an open position, given today's scores (None when there are none)."""
+    """"time", "flip" or None for an open position, given today's scores (None when there are none)."""
     if held >= exit_cfg["max_hold_days"]:
-        return "hold"
+        return "time"
     entry = (scores or {}).get(row["symbol"])
     if exit_cfg["exit_on_score_flip"] and entry:
         if (entry["score"] > 0 and row["side"] == "short") or (entry["score"] < 0 and row["side"] == "long"):
@@ -163,12 +168,13 @@ class Trader:
                 if o.status != "filled":
                     self.order_event(f"entry_{o.status}", o, reason="entry not filled")
                     continue
-                row.update(status="open", entry_price=o.filled_avg_price, qty=o.filled_qty)
+                row.update(status="open", entry_price=o.filled_avg_price, qty=o.filled_qty,
+                           entry_time=_iso(o.filled_at or self.now))
             if pos:
                 if row["status"] == "pending":
                     o = self.broker.get_order(row["entry_order_id"])
                     self.order_event("fill", o)
-                    row["status"] = "open"
+                    row.update(status="open", entry_time=_iso(o.filled_at or self.now))
                     if o.legs and not row["stop_order_id"]:
                         row["stop_order_id"] = o.legs[0].id
                 row.update(qty=abs(pos.qty), entry_price=pos.avg_entry_price)
@@ -184,29 +190,30 @@ class Trader:
                            price=pos.avg_entry_price, reason="position not in positions.csv")
                 stop = stops.get(sym)
                 kept.append({"symbol": sym, "side": "long" if pos.qty > 0 else "short", "qty": abs(pos.qty),
-                             "status": "open", "entry_date": self.today.isoformat(), "entry_price": pos.avg_entry_price,
+                             "status": "open", "entry_date": self.today.isoformat(), "entry_time": _iso(self.now),
+                             "entry_price": pos.avg_entry_price,
                              "stop_order_id": stop.id if stop else "", "stop_price": stop.stop_price if stop else "",
                              "config_version": self.cfg["version"]})
         self.rows = kept
         self.book.save_positions(kept)
 
     def _record_closed(self, row):
-        exit_price, reason, exit_day = None, row.get("exit_reason") or "", self.today
-        for oid, why in ((row.get("exit_order_id"), reason), (row.get("stop_order_id"), "stop")):
+        exit_price, reason, exit_time = None, row.get("exit_reason") or "", self.now
+        for oid, why in ((row.get("exit_order_id"), reason), (row.get("stop_order_id"), "sl")):
             if not oid or exit_price is not None:
                 continue
             o = self.broker.get_order(oid)
             if o.status == "filled":
                 exit_price, reason = o.filled_avg_price, why
-                exit_day = o.filled_at.date() if o.filled_at else self.today
+                exit_time = o.filled_at or self.now
                 self.order_event("fill", o, reason=why)
         if exit_price is None:
             reason = "unknown"
             self.log.warning("%s is no longer in the account and no exit fill was found", row["symbol"])
             with contextlib.suppress(Exception):
                 exit_price = self.broker.latest_prices([row["symbol"]]).get(row["symbol"])
-        held = hold_days(date.fromisoformat(row["entry_date"]), exit_day, self.calendar())
-        self.book.trade(trade_row(row, exit_day, exit_price, reason, held))
+        held = hold_days(date.fromisoformat(row["entry_date"]), exit_time.date(), self.calendar())
+        self.book.trade(trade_row(row, exit_time, exit_price, reason, held))
 
     def repair_stops(self):
         """Give every open position a live GTC stop."""
@@ -266,6 +273,7 @@ class Trader:
         except DuplicateOrderError:
             o = self.broker.get_order_by_client_id(cid)
         row.update(status="closing", exit_reason=reason, exit_order_id=o.id)
+        self.log.info("exit %s %s %s (%s)", row["symbol"], row["side"], row["qty"], reason)
         self.book.save_positions(self.rows)
         return True
 
@@ -290,6 +298,8 @@ class Trader:
             o = self.broker.submit_market_order(sym, "buy" if plan["side"] == "long" else "sell", plan["qty"], cid)
             fallback = True
         self.order_event("submit", o, reason=f"score {plan['score']} conf {plan['confidence']}", price=plan["price"])
+        self.log.info("entry %s %s %d at ~%.2f, stop %.2f (score %+d, confidence %.2f)", sym, plan["side"],
+                      plan["qty"], plan["price"], plan["stop_price"], plan["score"], plan["confidence"])
         row = {"symbol": sym, "side": plan["side"], "qty": plan["qty"], "status": "pending",
                "entry_date": self.today.isoformat(), "entry_price": plan["price"], "entry_order_id": o.id,
                "stop_order_id": o.legs[0].id if o.legs else "", "stop_price": plan["stop_price"],
@@ -325,6 +335,12 @@ class Trader:
             self._exits_and_entries(acct)
         self.reconcile()
         self.repair_stops()
+        events = self.book.order_events(self.today)
+        self.log.info("run done: %d positions held, %d entries and %d exits submitted today, %d candidates skipped",
+                      len(self.rows), sum(e["event"] == "submit" and e["client_order_id"].endswith("-entry")
+                                          for e in events),
+                      sum(e["event"] == "submit" and e["client_order_id"].endswith("-exit") for e in events),
+                      sum(e["event"] == "skip" for e in events))
 
     def _exits_and_entries(self, acct):
         record = self.load_scores(self.today)
@@ -360,6 +376,8 @@ class Trader:
                                     book_values=values, orders_today=submits, cfg=self.cfg)
         for sym, why in skips:
             self.event("skip", sym, reason=why)
+        if skips:
+            self.log.info("skipped: %s", ", ".join(f"{sym} ({why})" for sym, why in skips))
         for plan in plans:
             self.enter(plan, record)
 
@@ -390,18 +408,22 @@ class Trader:
                   for r in self.rows if r["status"] != "pending"]
         gross, net = risk.exposure_pct(values, acct.equity)
         events = self.book.order_events(self.today)
-        closed = [t for t in self.book.trades() if t["exit_date"] == self.today.isoformat()]
-        realized = sum(float(t["pnl_usd"]) for t in closed if t["pnl_usd"] not in ("", None))
+        closed = [t for t in self.book.trades() if t["date"] == self.today.isoformat()]
+        pnls = [float(t["pnl_usd"]) for t in closed if t["pnl_usd"] not in ("", None)]
+        realized = sum(pnls)
         unrealized = sum(float(r.get("unrealized_pnl") or 0) for r in self.rows if r["status"] != "pending")
         self.book.daily_summary({
-            "date": self.today.isoformat(), "equity_start": round(acct.last_equity, 2),
-            "equity_end": round(acct.equity, 2), "day_pnl": round(acct.equity - acct.last_equity, 2),
+            "date": self.today.isoformat(), "trades": len(closed), "wins": sum(p > 0 for p in pnls),
+            "losses": sum(p < 0 for p in pnls), "gross_pnl": round(realized, 2),
+            "equity_start": round(acct.last_equity, 2), "equity_end": round(acct.equity, 2), "halted": halted,
+            "notes": " ".join(notes), "day_pnl": round(acct.equity - acct.last_equity, 2),
             "day_return_pct": round(risk.daily_pnl_pct(acct.equity, acct.last_equity), 4),
-            "realized_pnl": round(realized, 2), "unrealized_pnl": round(unrealized, 2),
-            "positions": len(values), "gross_exposure": round(gross, 2), "net_exposure": round(net, 2),
+            "unrealized_pnl": round(unrealized, 2), "positions": len(values), "gross_exposure": round(gross, 2),
+            "net_exposure": round(net, 2),
             "entries": sum(1 for e in events if e["event"] == "submit" and e["client_order_id"].endswith("-entry")),
-            "exits": len(closed),
-            "scored": self.load_scores(self.today) is not None, "halted": halted, "notes": " ".join(notes)})
+            "scored": self.load_scores(self.today) is not None})
+        self.log.info("close done: equity %.2f, day P&L %+.2f (realized %+.2f), %d positions, gross %.1f%%, net %.1f%%",
+                      acct.equity, acct.equity - acct.last_equity, realized, len(values), gross, net)
 
     def mark_to_market(self):
         held = [r["symbol"] for r in self.rows if r["status"] != "pending"]
@@ -474,13 +496,34 @@ def replay(start, end, cfg, bars, log):
     return book
 
 
+def show_positions(broker, book):
+    """Holdings of a book marked at live prices, plus today's entries and exits so far."""
+    from analyze import holdings_table
+
+    now = datetime.now(ET)
+    rows = book.positions()
+    held = [r["symbol"] for r in rows if r["status"] != "pending"]
+    prices = broker.latest_prices(held) if held else {}
+    lines = [f"# Holdings ({book.mode}) at {now:%Y-%m-%d %H:%M} ET", "", holdings_table(rows, now.date(), prices)]
+    pending = [r["symbol"] for r in rows if r["status"] == "pending"]
+    if pending:
+        lines += ["", f"Entries waiting for a fill: {', '.join(pending)}"]
+    events = book.order_events(now.date())
+    entries = [e["symbol"] for e in events if e["event"] == "submit" and e["client_order_id"].endswith("-entry")]
+    exits = [t for t in book.trades() if t["date"] == now.date().isoformat()]
+    closed = ", ".join(f"{t['symbol']} {t['exit_reason']} {t['pnl_usd']}" for t in exits) or "none"
+    lines += ["", f"Today: {len(entries)} entries ({', '.join(entries) or 'none'}), {len(exits)} closed trades "
+              f"({closed})."]
+    return "\n".join(lines) + "\n"
+
+
 def main(argv=None):
     import config
     from broker import make_broker
     from simbroker import SimBroker
 
     ap = argparse.ArgumentParser(description="sentiment swing trader")
-    ap.add_argument("command", choices=["run", "close", "replay"])
+    ap.add_argument("command", choices=["run", "close", "replay", "positions"])
     ap.add_argument("--dry-run", action="store_true", help="simulated fills in state/dry_run/")
     ap.add_argument("--force", action="store_true", help="ignore the calendar and run time checks")
     ap.add_argument("--from", dest="start", type=date.fromisoformat)
@@ -507,6 +550,9 @@ def main(argv=None):
                   f"books in {book.dir}")
             return 0
         mode = "dry_run" if args.dry_run or cfg["mode"] == "dry_run" else "paper"
+        if args.command == "positions":
+            print(show_positions(make_broker(cfg, verify_account=False), Book(paths.book_dir(mode), mode)))
+            return 0
         with job_lock(paths.lock_file()):
             real = make_broker(cfg)
             book = Book(paths.book_dir(mode), mode)

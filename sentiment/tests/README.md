@@ -22,5 +22,5 @@ defaults, and moves the `HALT` file there.
 | `test_risk.py` | ATR, stops, sizing, book limits, daily loss |
 | `test_rules.py` | Entry signals, hold days, exit reasons, ranking, entry planning |
 | `test_trader.py` | Run and close jobs, restart reconciliation, kill switch, loss limit, replay |
-| `test_analytics.py` | Trade rows, report numbers, comparison verdicts |
-| `test_memory.py` | Score calibration, lifetime stats, today section, review validation, memory in scoring |
+| `test_analytics.py` | Paper-trader column parity, trade rows, R ranges, report, day report, holdings, comparison |
+| `test_memory.py` | Score calibration, lifetime layout, review validation, memory in scoring |

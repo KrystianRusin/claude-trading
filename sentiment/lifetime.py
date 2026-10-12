@@ -1,32 +1,77 @@
-"""Lifetime aggregate of a book: state/lifetime.md to read and state/lifetime.json for the review.
+"""All-time statistics since the first trading day, in the same format as the paper-trader's lifetime.md.
 
-    python lifetime.py [--book paper|dry_run|replay]
+    python lifetime.py [--book paper|dry_run|replay] [--no-baseline]
 
-Besides the book's own results it measures score calibration: for every score in every score file
-(traded or not), the stock's return from that day's open to the open `max_hold_days` trading days
-later. That says whether the scores carry information independent of the trading rules.
+Writes <book>/lifetime.md to read and <book>/lifetime.json for the weekly review. After the
+paper-trader's sections it adds the sentiment-specific ones: by score, confidence and memory
+version, and score calibration: for every score in every score file (traded or not), the stock's
+return from that day's open to the open `max_hold_days` trading days later.
 """
 import argparse
+import csv
 import json
 import math
 import sys
-from datetime import timedelta
+from datetime import date, timedelta
 
 import numpy as np
 import pandas as pd
 
 import paths
-from analyze import (MIN_TRADES, confidence_band, daily_returns, expectancy_range, load_spy, max_drawdown,
-                     read_summary, spy_return)
+from analyze import (DEFAULT_EQUITY, _fmt, _table, add_keys, breakdown, equity_stats, expectancy_ci,
+                     filter_trades, fmt_range, range_note, read_summary, spy_baseline, summary_stats)
 from logger import read_trades_frame
 
-TRADING_DAYS = 252
 
+def streaks(values):
+    """Longest run of positive and of negative values."""
+    best = worst = up = down = 0
+    for v in values:
+        up, down = (up + 1, 0) if v > 0 else (0, down + 1) if v < 0 else (0, 0)
+        best, worst = max(best, up), max(worst, down)
+    return best, worst
+
+
+def period_table(trades, summary, period):
+    """Per month ('M') or year ('Y'): days, trades, win rate, net $, return % and expectancy."""
+    if trades.empty:
+        return "(none)"
+    t = trades.assign(_p=pd.to_datetime(trades["date"]).dt.to_period(period),
+                      _r=pd.to_numeric(trades["pnl_r"], errors="coerce"), _pnl=trades["pnl_usd"].astype(float))
+    g = t.groupby("_p")
+    table = pd.DataFrame({"days": g["date"].nunique(), "trades": g.size(),
+                          "win_rate": g["_pnl"].apply(lambda s: (s > 0).mean()),
+                          "net_usd": g["_pnl"].sum(), "expectancy_r": g["_r"].mean()})
+    returns = {}
+    if not summary.empty:
+        s = summary.assign(_p=pd.to_datetime(summary["date"]).dt.to_period(period))
+        for p, rows in s.groupby("_p"):
+            start, end = rows["equity_start"].iloc[0], rows["equity_end"].iloc[-1]
+            if pd.notna(start) and pd.notna(end) and start:
+                returns[p] = (end / start - 1) * 100
+    table["return"] = [f"{returns[p]:+.2f}%" if p in returns else "n/a" for p in table.index]
+    lines = ["| period | days | trades | win rate | net $ | return | expectancy |", "|---|---|---|---|---|---|---|"]
+    for p, r in table.iterrows():
+        lines.append(f"| {p} | {r['days']} | {r['trades']} | {_fmt(r['win_rate'], 'pct')} | "
+                     f"{_fmt(r['net_usd'], 'usd')} | {r['return']} | {_fmt(r['expectancy_r'], 'r')} |")
+    return "\n".join(lines)
+
+
+def version_table(trades, key, label):
+    frame = breakdown(trades, key)
+    if frame.empty:
+        return "(none)"
+    spans = trades.groupby(key)["date"].agg(["min", "max"])
+    frame.insert(0, "dates", [f"{spans.loc[i, 'min']} to {spans.loc[i, 'max']}" for i in frame.index])
+    frame.index.name = label
+    return _table(frame)
+
+
+# ---- score calibration ----
 
 def read_score_files():
     """All score files, oldest first."""
-    files = sorted(paths.scores_dir().glob("*.json"))
-    return [json.loads(f.read_text(encoding="utf-8")) for f in files]
+    return [json.loads(f.read_text(encoding="utf-8")) for f in sorted(paths.scores_dir().glob("*.json"))]
 
 
 def score_outcomes(records, bars, horizon):
@@ -58,120 +103,140 @@ def calibration(outcomes):
     return out
 
 
-def _group(priced, col):
-    out = {}
-    for k, g in priced.groupby(col, dropna=False):
-        out[str(k)] = {"trades": int(len(g)), "win_rate": round(float((g["pnl_pct"] > 0).mean()), 3),
-                       "mean_pnl_pct": round(float(g["pnl_pct"].mean()), 3),
-                       "total_pnl_usd": round(float(g["pnl_usd"].sum()), 2)}
-    return out
+def calibration_section(outcomes, horizon):
+    if outcomes is None or outcomes.empty:
+        return ["No scores with a completed window yet."]
+    lines = [f"{len(outcomes)} scores whose {horizon}-day window has completed. Hit rate: the move went the "
+             "score's way.", "", "| score | n | mean forward return | hit rate |", "|---|---|---|---|"]
+    by = calibration(outcomes)
+    for s in sorted(by, key=int):
+        c = by[s]
+        hit = "n/a" if c["hit_rate"] is None else f"{c['hit_rate']:.1%}"
+        lines.append(f"| {s} | {c['n']} | {c['mean_fwd_return_pct']:+.2f}% | {hit} |")
+    mem = outcomes["memory_sha256"].fillna("").astype(str).str[:12].replace("", "none")
+    if mem.nunique() > 1:
+        lines += ["", "| memory version | non-zero scores | hit rate |", "|---|---|---|"]
+        for v, g in outcomes[outcomes["score"] != 0].groupby(mem):
+            hits = (np.sign(g["fwd_return"]) == np.sign(g["score"])).mean()
+            lines.append(f"| {v} | {len(g)} | {hits:.1%} |")
+    return lines
 
 
-def _r(x, digits=4):
-    return None if x is None or (isinstance(x, float) and math.isnan(x)) else round(float(x), digits)
+# ---- lifetime.md ----
+
+def _open_positions(book):
+    path = paths.book_dir(book) / "positions.csv"
+    if not path.exists():
+        return []
+    with open(path, newline="", encoding="utf-8") as f:
+        return [r for r in csv.DictReader(f) if r["status"] != "pending"]
 
 
-def compute(trades, summary, outcomes=None, spy=None):
-    """The lifetime stats as a plain dict (JSON-ready)."""
-    priced = trades[pd.to_numeric(trades["pnl_pct"], errors="coerce").notna()].copy()
-    priced["pnl_pct"] = priced["pnl_pct"].astype(float)
-    priced["pnl_usd"] = priced["pnl_usd"].astype(float)
-    returns = daily_returns(summary)
-    sd = float(returns.std(ddof=1)) if len(returns) > 1 else float("nan")
-    wins, losses = priced[priced["pnl_pct"] > 0], priced[priced["pnl_pct"] <= 0]
-    mean, lo, hi = expectancy_range(priced)
-    loss_sum = -losses["pnl_usd"].sum()
-    stats = {
-        "first_day": str(returns.index[0]) if len(returns) else None,
-        "last_day": str(returns.index[-1]) if len(returns) else None,
-        "days": int(len(returns)),
-        "total_return_pct": _r(100 * ((1 + returns).prod() - 1)) if len(returns) else None,
-        "ann_volatility_pct": _r(100 * sd * math.sqrt(TRADING_DAYS)),
-        "sharpe": _r(returns.mean() / sd * math.sqrt(TRADING_DAYS)) if len(returns) > 1 and sd > 0 else None,
-        "max_drawdown_pct": _r(100 * max_drawdown(returns)),
-        "best_day_pct": _r(100 * returns.max()) if len(returns) else None,
-        "worst_day_pct": _r(100 * returns.min()) if len(returns) else None,
-        "spy_return_pct": None,
-        "trades": int(len(trades)), "priced_trades": int(len(priced)),
-        "enough_trades": bool(len(priced) >= MIN_TRADES),
-        "win_rate": _r((priced["pnl_pct"] > 0).mean(), 3) if len(priced) else None,
-        "avg_win_pct": _r(wins["pnl_pct"].mean(), 3) if len(wins) else None,
-        "avg_loss_pct": _r(losses["pnl_pct"].mean(), 3) if len(losses) else None,
-        "expectancy_pct": _r(mean, 3), "expectancy_95_low": _r(lo, 3), "expectancy_95_high": _r(hi, 3),
-        "profit_factor": _r(wins["pnl_usd"].sum() / loss_sum, 3) if loss_sum > 0 else None,
-        "total_pnl_usd": _r(priced["pnl_usd"].sum(), 2),
-        "avg_hold_days": _r(pd.to_numeric(priced["hold_days"], errors="coerce").mean(), 2) if len(priced) else None,
-    }
-    if len(returns) and spy is not None:
-        stats["spy_return_pct"] = _r(100 * (spy_return(spy, returns.index[0], returns.index[-1]) or float("nan")))
-    if len(priced):
-        priced["score_bucket"] = priced["score"].map(lambda s: "unknown" if pd.isna(s) else f"{int(s):+d}")
-        priced["confidence_band"] = priced["confidence"].map(confidence_band)
-        priced["month"] = pd.to_datetime(priced["exit_date"]).dt.strftime("%Y-%m")
-        mem = priced["memory_sha256"] if "memory_sha256" in priced else pd.Series("", index=priced.index)
-        priced["memory"] = mem.fillna("").astype(str).str[:12].replace("", "none")
-        stats["by"] = {name: _group(priced, col) for name, col in (
-            ("score", "score_bucket"), ("confidence", "confidence_band"), ("side", "side"),
-            ("exit_reason", "exit_reason"), ("month", "month"), ("memory_version", "memory"))}
-    if outcomes is not None and len(outcomes):
-        mem = outcomes["memory_sha256"].fillna("").astype(str).str[:12].replace("", "none")
-        stats["calibration"] = {"scores": int(len(outcomes)), "by_score": calibration(outcomes),
-                                "by_memory_version": {k: calibration(g) for k, g in outcomes.groupby(mem)}}
-    return stats
+def build_lifetime(trades, summary, baseline=None, today=None, outcomes=None, horizon=5, holdings=()):
+    today = today or date.today()
+    lines = ["# Lifetime statistics", "", f"Generated {today}. Paper trading; not evidence of skill on "
+             "its own. Every expectancy comes with a 95% range grouped by trading day.", ""]
+    if trades.empty:
+        lines.append("No closed trades yet.")
+        if holdings:
+            unreal = sum(float(r.get("unrealized_pnl") or 0) for r in holdings)
+            lines += ["", f"- Open positions: {len(holdings)}, unrealized {_fmt(unreal, 'usd')}"]
+        lines += ["", "## Score calibration", "", *calibration_section(outcomes, horizon)]
+        return "\n".join(lines) + "\n"
 
+    trades = add_keys(trades)
+    first = min(trades["date"].min(), summary["date"].min() if not summary.empty else trades["date"].max())
+    start_equity = float(summary["equity_start"].iloc[0]) if not summary.empty else DEFAULT_EQUITY
+    current = float(summary["equity_end"].iloc[-1]) if not summary.empty else None
+    s, ci = summary_stats(trades), expectancy_ci(trades)
+    e = equity_stats(trades, start_equity)
+    equity_curve = start_equity + trades["pnl_usd"].astype(float).cumsum()
+    high_water = max(start_equity, float(equity_curve.max()))
+    now_equity = current if current is not None else e["end_equity"]
+    day_pnl = trades.groupby("date")["pnl_usd"].apply(lambda x: x.astype(float).sum())
+    win_days, lose_days = streaks(day_pnl.tolist())
+    pnl = trades["pnl_usd"].astype(float)
+    best_t, worst_t = trades.loc[pnl.idxmax()], trades.loc[pnl.idxmin()]
+    sessions = len(summary) if not summary.empty else trades["date"].nunique()
+    halted = int(summary["halted"].astype(str).str.lower().eq("true").sum()) if not summary.empty else 0
+    unreal = sum(float(r.get("unrealized_pnl") or 0) for r in holdings)
 
-def _fmt(v, suffix=""):
-    return "n/a" if v is None else f"{v:+.2f}{suffix}" if suffix == "%" else f"{v}{suffix}"
-
-
-def render(stats):
-    lines = ["# Lifetime", ""]
-    if not stats["days"]:
-        return "# Lifetime\n\nNo trading days yet.\n"
-    lines += [f"{stats['first_day']} to {stats['last_day']}, {stats['days']} trading days.", ""]
-    if not stats["enough_trades"]:
-        lines += [f"**Only {stats['priced_trades']} priced trades: under {MIN_TRADES}, these numbers are not "
-                  "evidence of anything yet.**", ""]
-    rng = (f" (95% range {stats['expectancy_95_low']:+.2f} to {stats['expectancy_95_high']:+.2f})"
-           if stats["expectancy_95_low"] is not None else "")
     lines += [
-        f"- Total return: {_fmt(stats['total_return_pct'], '%')} (SPY {_fmt(stats['spy_return_pct'], '%')})",
-        f"- P&L: {_fmt(stats['total_pnl_usd'])} USD from {stats['priced_trades']} priced trades "
-        f"({stats['trades']} closed)",
-        f"- Win rate: {_fmt(stats['win_rate'])}, average win {_fmt(stats['avg_win_pct'], '%')}, "
-        f"average loss {_fmt(stats['avg_loss_pct'], '%')}",
-        f"- Expectancy per trade: {_fmt(stats['expectancy_pct'], '%')}{rng}",
-        f"- Profit factor: {_fmt(stats['profit_factor'])}, average hold {_fmt(stats['avg_hold_days'])} days",
-        f"- Volatility (annualised): {_fmt(stats['ann_volatility_pct'], '%')}, Sharpe {_fmt(stats['sharpe'])}",
-        f"- Max drawdown: {_fmt(stats['max_drawdown_pct'], '%')}, best day {_fmt(stats['best_day_pct'], '%')}, "
-        f"worst day {_fmt(stats['worst_day_pct'], '%')}", ""]
-    cal = stats.get("calibration")
-    if cal:
-        lines += ["## Score calibration (every score, traded or not)", "",
-                  f"{cal['scores']} scores with a completed window. Hit rate: the move went the score's way.", "",
-                  "| Score | n | mean forward return | hit rate |", "|---|---:|---:|---:|"]
-        for s in sorted(cal["by_score"], key=int):
-            c = cal["by_score"][s]
-            hit = "n/a" if c["hit_rate"] is None else f"{c['hit_rate']:.0%}"
-            lines.append(f"| {s} | {c['n']} | {c['mean_fwd_return_pct']:+.2f}% | {hit} |")
-        lines.append("")
-        versions = cal.get("by_memory_version", {})
-        if len(versions) > 1:
-            lines += ["By memory version, hit rate of non-zero scores:", ""]
-            for v, by in versions.items():
-                nonzero = [c for s, c in by.items() if s != "+0"]
-                n = sum(c["n"] for c in nonzero)
-                hits = sum(c["n"] * c["hit_rate"] for c in nonzero) / n if n else None
-                lines.append(f"- {v}: {n} scores, hit rate {'n/a' if hits is None else f'{hits:.0%}'}")
-            lines.append("")
-    for name, groups in stats.get("by", {}).items():
-        lines += [f"## Trades by {name.replace('_', ' ')}", "", "| | trades | win rate | mean P&L % | total P&L $ |",
-                  "|---|---:|---:|---:|---:|"]
-        for k, g in groups.items():
-            lines.append(f"| {k} | {g['trades']} | {g['win_rate']:.0%} | {g['mean_pnl_pct']:+.2f} | "
-                         f"{g['total_pnl_usd']:+,.2f} |")
-        lines.append("")
+        "## All time", "",
+        f"- Running since {first} ({sessions} sessions, {s['trading_days']} with trades, {halted} halted)",
+        f"- Trades: {s['n']} ({s['wins']} wins, {s['losses']} losses, win rate {_fmt(s['win_rate'], 'pct')})",
+        f"- Expectancy: {_fmt(s['expectancy_r'], 'r')} / {_fmt(s['expectancy_usd'], 'usd')} per trade, "
+        f"95% range {fmt_range(ci)}{range_note(ci)}",
+        f"- Profit factor: {_fmt(s['profit_factor'])}",
+        f"- Net P&L: {_fmt(s['total_pnl'], 'usd')}",
+        "", "## Equity", "",
+        f"- Start {_fmt(start_equity, 'usd')}, now {_fmt(now_equity, 'usd')} "
+        f"({(now_equity / start_equity - 1) * 100:+.2f}%)",
+        f"- High-water mark {_fmt(high_water, 'usd')}; current drawdown "
+        f"{_fmt(high_water - now_equity, 'usd')} ({(1 - now_equity / high_water) * 100:.2f}%)",
+        f"- Max drawdown {_fmt(e['max_drawdown_usd'], 'usd')} ({e['max_drawdown_pct']:.2f}%)",
+        f"- Open positions: {len(holdings)}, unrealized {_fmt(unreal, 'usd')}",
+    ]
+    if isinstance(baseline, (int, float)):
+        lines.append(f"- SPY buy-and-hold over the same period: {baseline:+.2f}%")
+    elif baseline:
+        lines.append(f"- SPY baseline unavailable: {baseline}")
+    lines += [
+        "", "## Records", "",
+        f"- Best day: {day_pnl.idxmax()} {_fmt(float(day_pnl.max()), 'usd')}; "
+        f"worst day: {day_pnl.idxmin()} {_fmt(float(day_pnl.min()), 'usd')}",
+        f"- Best trade: {best_t['date']} {best_t['side']} {best_t['symbol']} {_fmt(float(best_t['pnl_usd']), 'usd')}; "
+        f"worst trade: {worst_t['date']} {worst_t['side']} {worst_t['symbol']} {_fmt(float(worst_t['pnl_usd']), 'usd')}",
+        f"- Longest winning streak: {win_days} days; longest losing streak: {lose_days} days, "
+        f"{e['longest_losing_streak']} trades",
+        "", "## By month", "", period_table(trades, summary, "M"),
+        "", "## By year", "", period_table(trades, summary, "Y"),
+        "", "## By strategy version", "", version_table(trades, "strategy_key", "strategy"),
+        "", "## By config version", "", version_table(trades, "config_version", "config"),
+        "", "## By score", "", _table(breakdown(trades, "score_bucket")),
+        "", "## By confidence", "", _table(breakdown(trades, "confidence_band")),
+        "", "## By memory version", "", version_table(trades, "memory_version", "memory"),
+        "", "## Score calibration", "", *calibration_section(outcomes, horizon),
+    ]
     return "\n".join(lines) + "\n"
+
+
+# ---- lifetime.json for the review ----
+
+def _num(v, digits=4):
+    if v is None or (isinstance(v, float) and (math.isnan(v) or math.isinf(v))):
+        return None
+    return round(float(v), digits)
+
+
+def _groups(trades, key):
+    frame = breakdown(trades, key)
+    return {str(k): {"n": int(r["n"]), "win_rate": _num(r["win_rate"], 3), "pnl_usd": _num(r["pnl_usd"], 2),
+                     "expectancy_r": _num(r["expectancy_r"], 3), "range_95": r["range_95"]}
+            for k, r in frame.iterrows()}
+
+
+def compute(trades, summary, outcomes=None):
+    """The lifetime numbers as a plain dict, for the review."""
+    stats = {"days": int(len(summary)), "trades": int(len(trades))}
+    if not trades.empty:
+        t = add_keys(trades).assign(month=pd.to_datetime(trades["date"]).dt.strftime("%Y-%m"))
+        s, ci = summary_stats(t), expectancy_ci(t)
+        start = float(summary["equity_start"].iloc[0]) if not summary.empty else DEFAULT_EQUITY
+        e = equity_stats(t, start)
+        stats |= {"wins": s["wins"], "losses": s["losses"], "win_rate": _num(s["win_rate"], 3),
+                  "expectancy_r": _num(s["expectancy_r"], 3), "expectancy_usd": _num(s["expectancy_usd"], 2),
+                  "expectancy_95": [_num(ci["lo"], 3), _num(ci["hi"], 3)],
+                  "profit_factor": _num(s["profit_factor"], 3), "net_pnl_usd": _num(s["total_pnl"], 2),
+                  "max_drawdown_pct": _num(e["max_drawdown_pct"], 2),
+                  "by": {name: _groups(t, key) for name, key in (
+                      ("score", "score_bucket"), ("confidence", "confidence_band"), ("side", "side"),
+                      ("exit_reason", "exit_reason"), ("month", "month"), ("memory_version", "memory_version"))}}
+    if not summary.empty:
+        stats["total_return_pct"] = _num((summary["equity_end"].iloc[-1] / summary["equity_start"].iloc[0] - 1) * 100, 3)
+    if outcomes is not None and len(outcomes):
+        stats["calibration"] = {"scores": int(len(outcomes)), "by_score": calibration(outcomes)}
+    return stats
 
 
 def load_outcomes(records, horizon):
@@ -192,12 +257,12 @@ def load_outcomes(records, horizon):
 
 
 def build(book, horizon, log=None, outcomes=None, fetch=True):
-    """Compute and write state/lifetime.md and state/lifetime.json for a book. Returns the stats.
+    """Write <book>/lifetime.md and lifetime.json. Returns the JSON stats.
 
-    With fetch=False nothing is downloaded: calibration uses `outcomes` and SPY is left out.
+    With fetch=False nothing is downloaded: calibration uses `outcomes` and the SPY baseline is skipped.
     """
     d = paths.book_dir(book)
-    trades = read_trades_frame(d / "trades.csv")
+    trades = filter_trades(read_trades_frame(d / "trades.csv"))
     summary = read_summary(d / "daily_summary.csv")
     if outcomes is None and fetch:
         records = read_score_files()
@@ -206,10 +271,15 @@ def build(book, horizon, log=None, outcomes=None, fetch=True):
         except Exception:
             if log:
                 log.warning("score calibration skipped: no bars", exc_info=True)
-    spy = load_spy(summary["date"].iloc[0], summary["date"].iloc[-1]) if fetch and not summary.empty else None
-    stats = compute(trades, summary, outcomes, spy) | {"book": book}
-    paths.lifetime_file().write_text(render(stats), encoding="utf-8")
-    paths.lifetime_json().write_text(json.dumps(stats, indent=1), encoding="utf-8")
+    baseline = None
+    if fetch and not trades.empty:
+        baseline = spy_baseline(trades["date"].min(), trades["date"].max())
+    text = build_lifetime(trades, summary, baseline, outcomes=outcomes, horizon=horizon,
+                          holdings=_open_positions(book))
+    stats = compute(trades, summary, outcomes) | {"book": book}
+    d.mkdir(parents=True, exist_ok=True)
+    paths.lifetime_file(book).write_text(text, encoding="utf-8")
+    paths.lifetime_json(book).write_text(json.dumps(stats, indent=1, default=str), encoding="utf-8")
     return stats
 
 
@@ -217,13 +287,16 @@ def main(argv=None):
     import config
     from logger import setup_logging
 
-    ap = argparse.ArgumentParser(description="lifetime aggregate")
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--book", choices=["paper", "dry_run", "replay"])
+    ap.add_argument("--no-baseline", action="store_true", help="download nothing: no SPY baseline or calibration")
     args = ap.parse_args(argv)
     log = setup_logging("lifetime")
     cfg = config.load_config()
-    build(args.book or cfg["mode"], cfg["exit"]["max_hold_days"], log)
-    print(paths.lifetime_file().read_text(encoding="utf-8"))
+    book = args.book or cfg["mode"]
+    build(book, cfg["exit"]["max_hold_days"], log, fetch=not args.no_baseline)
+    print(paths.lifetime_file(book).read_text(encoding="utf-8"))
+    print(f"written to {paths.lifetime_file(book)}")
     return 0
 
 

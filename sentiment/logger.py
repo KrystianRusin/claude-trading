@@ -4,41 +4,65 @@ import json
 import logging
 import os
 import urllib.request
+from datetime import datetime
 
 import pandas as pd
 from dotenv import load_dotenv
 
 import paths
 
-TRADE_FIELDS = ["entry_date", "exit_date", "symbol", "side", "qty", "entry_price", "exit_price", "exit_reason",
-                "pnl_usd", "pnl_pct", "hold_days", "score", "confidence", "score_date", "config_version",
+STRATEGY = "sentiment_swing"
+STRATEGY_VERSION = 1
+# The first 16 trade and 9 summary columns match the paper-trader's files, so both books read the same way.
+TRADE_FIELDS = ["date", "symbol", "side", "qty", "entry_time", "entry_price", "exit_time", "exit_price",
+                "exit_reason", "pnl_usd", "pnl_r", "range_pct", "entry_minute_after_open", "config_version",
+                "strategy", "strategy_version",
+                "entry_date", "exit_date", "pnl_pct", "hold_days", "stop_price", "score", "confidence", "score_date",
                 "prompt_sha256", "memory_sha256", "held_over_earnings"]
-EXIT_REASONS = ("hold", "flip", "stop", "halt", "loss_limit", "unknown")
+EXIT_REASONS = ("sl", "time", "flip", "halt", "loss_limit", "unknown")
 ORDER_FIELDS = ["timestamp", "date", "mode", "event", "symbol", "side", "qty", "order_type", "price",
                 "stop_price", "order_id", "client_order_id", "status", "reason"]
-POSITION_FIELDS = ["symbol", "side", "qty", "status", "entry_date", "entry_price", "entry_order_id",
+POSITION_FIELDS = ["symbol", "side", "qty", "status", "entry_date", "entry_time", "entry_price", "entry_order_id",
                    "stop_order_id", "stop_price", "score", "confidence", "score_date", "config_version",
                    "prompt_sha256", "memory_sha256", "exit_reason", "exit_order_id", "last_price", "unrealized_pnl"]
-SUMMARY_FIELDS = ["date", "equity_start", "equity_end", "day_pnl", "day_return_pct", "realized_pnl",
-                  "unrealized_pnl", "positions", "gross_exposure", "net_exposure", "entries", "exits", "scored",
-                  "halted", "notes"]
+SUMMARY_FIELDS = ["date", "trades", "wins", "losses", "gross_pnl", "equity_start", "equity_end", "halted", "notes",
+                  "day_pnl", "day_return_pct", "unrealized_pnl", "positions", "gross_exposure", "net_exposure",
+                  "entries", "scored"]
 
 
-def trade_row(position, exit_date, exit_price, exit_reason, hold_days):
-    """One trades.csv row from a positions.csv row and how it closed."""
+def _fmt_time(ts):
+    return ts.isoformat(timespec="seconds") if ts else ""
+
+
+def trade_row(position, exit_time, exit_price, exit_reason, hold_days):
+    """One trades.csv row from a positions.csv row and how it closed.
+
+    `date` is the exit date. pnl_r is P&L per share over the planned risk per share (entry to stop).
+    """
     qty = float(position["qty"])
     entry = float(position["entry_price"])
     direction = 1 if position["side"] == "long" else -1
     priced = exit_price is not None
-    pnl = (exit_price - entry) * direction * qty if priced else None
+    per_share = (exit_price - entry) * direction if priced else None
+    stop = float(position["stop_price"]) if position.get("stop_price") not in ("", None) else None
+    risk = abs(entry - stop) if stop is not None else 0
+    entry_time = datetime.fromisoformat(position["entry_time"]) if position.get("entry_time") else None
+    minute = int((entry_time - entry_time.replace(hour=9, minute=30, second=0, microsecond=0)).total_seconds()
+                 // 60) if entry_time else ""
     return {
-        "entry_date": position["entry_date"], "exit_date": exit_date.isoformat(), "symbol": position["symbol"],
-        "side": position["side"], "qty": int(qty) if qty.is_integer() else qty, "entry_price": round(entry, 4),
+        "date": exit_time.date().isoformat(), "symbol": position["symbol"], "side": position["side"],
+        "qty": int(qty) if qty.is_integer() else qty, "entry_time": _fmt_time(entry_time),
+        "entry_price": round(entry, 4), "exit_time": _fmt_time(exit_time),
         "exit_price": round(exit_price, 4) if priced else "", "exit_reason": exit_reason,
-        "pnl_usd": round(pnl, 2) if priced else "",
-        "pnl_pct": round(100 * (exit_price / entry - 1) * direction, 4) if priced else "",
-        "hold_days": hold_days, "score": position.get("score", ""), "confidence": position.get("confidence", ""),
-        "score_date": position.get("score_date", ""), "config_version": position.get("config_version", ""),
+        "pnl_usd": round(per_share * qty, 2) if priced else "",
+        "pnl_r": round(per_share / risk, 4) if priced and risk > 0 else "",
+        "range_pct": "", "entry_minute_after_open": minute,
+        "config_version": position.get("config_version", ""), "strategy": STRATEGY,
+        "strategy_version": STRATEGY_VERSION,
+        "entry_date": position["entry_date"], "exit_date": exit_time.date().isoformat(),
+        "pnl_pct": round(100 * per_share / entry, 4) if priced else "", "hold_days": hold_days,
+        "stop_price": stop if stop is not None else "", "score": position.get("score", ""),
+        "confidence": position.get("confidence", ""), "score_date": position.get("score_date", ""),
         "prompt_sha256": position.get("prompt_sha256", ""), "memory_sha256": position.get("memory_sha256", ""),
         "held_over_earnings": "",
     }
@@ -127,11 +151,13 @@ class Book:
 
 
 def read_trades_frame(path):
-    """trades.csv as a DataFrame with parsed dates; an empty frame with the right columns if missing."""
+    """trades.csv as a DataFrame with parsed times and dates; an empty frame with the right columns if missing."""
     if not path.exists() or path.stat().st_size == 0:
         return pd.DataFrame(columns=TRADE_FIELDS)
     df = pd.read_csv(path)
-    for col in ("entry_date", "exit_date"):
+    for col in ("entry_time", "exit_time"):
+        df[col] = pd.to_datetime(df[col], errors="coerce", utc=True).dt.tz_convert("America/New_York")
+    for col in ("date", "entry_date", "exit_date"):
         df[col] = pd.to_datetime(df[col]).dt.date
     return df
 

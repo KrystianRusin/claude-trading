@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 
 import paths
-from analyze import daily_returns, load_spy, max_drawdown, read_summary, spy_return
+from analyze import daily_returns, max_drawdown, read_summary, spy_baseline
 
 TRADING_DAYS = 252
 Z95 = 1.96
@@ -61,7 +61,7 @@ def build_comparison(ours, theirs, our_trades=None, their_trades=None, spy=None,
     if not overlap:
         return "\n".join(lines + ["No overlapping days yet."]) + "\n"
     ra, rb = ra.loc[overlap], rb.loc[overlap]
-    sa = book_stats(ra, _trades_in(our_trades, "exit_date", overlap))
+    sa = book_stats(ra, _trades_in(our_trades, "date", overlap))
     sb = book_stats(rb, _trades_in(their_trades, "date", overlap))
     lines += [f"Overlapping period: {overlap[0]} to {overlap[-1]} ({len(overlap)} trading days).", "",
               f"| | {names[0]} | {names[1]} |", "|---|---:|---:|"]
@@ -70,7 +70,8 @@ def build_comparison(ours, theirs, our_trades=None, their_trades=None, spy=None,
                             ("worst_day", "Worst day", True)):
         lines.append(f"| {label} | {_fmt(sa[key], pct)} | {_fmt(sb[key], pct)} |")
     lines += [f"| Trades | {sa['trades']} | {sb['trades']} |", f"| Days | {sa['days']} | {sb['days']} |", ""]
-    lines.append(f"- SPY buy-and-hold, same period: {_fmt(spy_return(spy, overlap[0], overlap[-1]))}")
+    spy_text = f"{spy:+.2f}%" if isinstance(spy, (int, float)) else (spy or "not requested")
+    lines.append(f"- SPY buy-and-hold, same period: {spy_text}")
     corr = float(np.corrcoef(ra, rb)[0, 1]) if len(overlap) > 2 and ra.std() > 0 and rb.std() > 0 else None
     lines.append(f"- Correlation of daily returns: {_fmt(corr, pct=False)}")
     m, lo, hi = difference(ra, rb)
@@ -108,7 +109,7 @@ def main(argv=None):
         theirs = read_summary(Path(other) / "daily_summary.csv")
         their_trades = pd.read_csv(Path(other) / "trades.csv") if (Path(other) / "trades.csv").exists() else None
         overlap = sorted(set(ours["date"]) & set(theirs["date"]))
-        spy = load_spy(overlap[0], overlap[-1]) if overlap else None
+        spy = spy_baseline(overlap[0], overlap[-1]) if overlap else None
         text = build_comparison(ours, theirs, read_trades_frame(ours_dir / "trades.csv"), their_trades, spy,
                                 names=(f"sentiment-trader ({book})", "paper-trader"))
     paths.comparison_file().write_text(text, encoding="utf-8")

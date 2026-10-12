@@ -56,20 +56,20 @@ def bars_dir():
     return state_dir() / "bars"
 
 
-def reports_dir():
-    return state_dir() / "reports"
+def reports_dir(mode):
+    return book_dir(mode) / "reports"
 
 
 def comparison_file():
     return state_dir() / "comparison.md"
 
 
-def lifetime_file():
-    return state_dir() / "lifetime.md"
+def lifetime_file(mode):
+    return book_dir(mode) / "lifetime.md"
 
 
-def lifetime_json():
-    return state_dir() / "lifetime.json"
+def lifetime_json(mode):
+    return book_dir(mode) / "lifetime.json"
 
 
 def memory_file():

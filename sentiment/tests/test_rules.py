@@ -32,7 +32,7 @@ def test_hold_days_counts_trading_days_after_entry():
 def test_exit_reason():
     row = {"symbol": "AAPL", "side": "long"}
     ex = CFG["exit"]
-    assert trader.exit_reason(row, None, 5, ex) == "hold"
+    assert trader.exit_reason(row, None, 5, ex) == "time"
     assert trader.exit_reason(row, {"AAPL": e(-1, 0.1)}, 1, ex) == "flip"
     assert trader.exit_reason(row, {"AAPL": e(0)}, 1, ex) is None
     assert trader.exit_reason({"symbol": "AAPL", "side": "short"}, {"AAPL": e(1)}, 1, ex) == "flip"

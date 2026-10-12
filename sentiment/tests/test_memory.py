@@ -48,39 +48,42 @@ def test_score_outcomes_and_calibration():
     assert cal["-1"]["hit_rate"] == 0.0 and cal["+0"]["hit_rate"] is None
 
 
-def test_lifetime_compute_and_render():
-    trades = pd.DataFrame({"entry_date": [DAYS[0], DAYS[1]], "exit_date": [DAYS[5], DAYS[6]],
-                           "symbol": ["A", "B"], "side": ["long", "short"], "pnl_pct": [4.0, -2.0],
-                           "pnl_usd": [400.0, -200.0], "score": [2, -2], "confidence": [0.9, 0.8],
-                           "exit_reason": ["hold", "stop"], "hold_days": [5, 5]})
+PAPER_TRADER_LIFETIME_SECTIONS = ["## All time", "## Equity", "## Records", "## By month", "## By year",
+                                  "## By strategy version", "## By config version"]
+
+
+def trades_frame(tmp_path):
+    from logger import Book, read_trades_frame, trade_row
+
+    book = Book(tmp_path, "paper")
+    for sym, side, stop, exit_day, price, score_ in (("A", "long", 96.0, DAYS[5], 104.0, 2),
+                                                     ("B", "short", 104.0, DAYS[6], 98.0, -2)):
+        pos = {"symbol": sym, "side": side, "qty": "100", "entry_price": "100", "stop_price": str(stop),
+               "entry_date": DAYS[0].isoformat(), "entry_time": f"{DAYS[0]}T09:45:00-04:00", "score": str(score_),
+               "confidence": "0.9", "config_version": "1"}
+        book.trade(trade_row(pos, datetime.combine(exit_day, datetime.min.time(), ET).replace(hour=9, minute=45),
+                             price, "time", 5))
+    return analyze.filter_trades(read_trades_frame(book.trades_path))
+
+
+def test_lifetime_matches_the_paper_trader_layout(tmp_path):
+    trades = trades_frame(tmp_path)
     summary = pd.DataFrame({"date": DAYS[:3], "equity_start": [100_000.0, 101_000.0, 100_000.0],
-                            "equity_end": [101_000.0, 100_000.0, 100_200.0]})
+                            "equity_end": [101_000.0, 100_000.0, 100_200.0], "halted": [False, False, True]})
+    holdings = [{"unrealized_pnl": "25.5"}]
+    text = lifetime.build_lifetime(trades, summary, 1.25, today=DAYS[7], holdings=holdings)
+    headings = [ln for ln in text.splitlines() if ln.startswith("## ")]
+    assert headings[:7] == PAPER_TRADER_LIFETIME_SECTIONS
+    assert headings[7:] == ["## By score", "## By confidence", "## By memory version", "## Score calibration"]
+    assert "- Running since 2026-09-01 (3 sessions, 2 with trades, 1 halted)" in text
+    assert "- Trades: 2 (2 wins, 0 losses, win rate 100.0%)" in text
+    assert "- Start $100,000.00, now $100,200.00 (+0.20%)" in text
+    assert "- Open positions: 1, unrealized $25.50" in text and "SPY buy-and-hold over the same period: +1.25%" in text
+    assert "| 2026-09 | 2 | 2 | 100.0% | $600.00 | +0.20% | +0.75R |" in text
     stats = lifetime.compute(trades, summary)
-    assert stats["days"] == 3 and stats["priced_trades"] == 2 and not stats["enough_trades"]
-    assert stats["profit_factor"] == 2.0 and stats["win_rate"] == 0.5 and stats["avg_hold_days"] == 5
-    assert stats["by"]["side"]["short"]["total_pnl_usd"] == -200.0
-    assert stats["by"]["month"]["2026-09"]["trades"] == 2
-    text = lifetime.render(stats)
-    assert "Only 2 priced trades" in text and "## Trades by exit reason" in text
-    assert lifetime.render(lifetime.compute(trades.iloc[0:0], summary.iloc[0:0])).startswith("# Lifetime")
-
-
-def test_today_section_in_report():
-    trades = pd.DataFrame({"entry_date": [DAYS[0]], "exit_date": [DAYS[2]], "symbol": ["A"], "side": ["long"],
-                           "pnl_pct": [3.0], "pnl_usd": [300.0], "score": [2], "confidence": [0.9],
-                           "exit_reason": ["hold"], "prompt_sha256": ["x"]})
-    summary = pd.DataFrame({"date": [DAYS[2]], "equity_start": [100_000.0], "equity_end": [100_500.0],
-                            "day_pnl": [500.0], "day_return_pct": [0.5], "realized_pnl": [300.0],
-                            "unrealized_pnl": [200.0]})
-    orders = [{"date": DAYS[2].isoformat(), "event": "submit", "client_order_id": "st-x-B-entry", "symbol": "B",
-               "side": "buy", "qty": "10", "price": "50", "reason": "score 2 conf 0.9"},
-              {"date": DAYS[2].isoformat(), "event": "submit", "client_order_id": "st-x-A-exit", "symbol": "A",
-               "side": "sell", "qty": "10", "price": "", "reason": "hold"}]
-    text = analyze.build_report(trades, summary, orders=orders)
-    assert f"## Today ({DAYS[2]})" in text
-    assert "P&L: +500.00 USD (+0.50%), realized +300.00, open positions' unrealized +200.00" in text
-    assert "- Entries: 1\n  - B buy 10 at ~50 (score 2 conf 0.9)" in text
-    assert "- Exits: 1\n  - A long: hold, +3.00% (+300.00 USD)" in text
+    assert stats["trades"] == 2 and stats["expectancy_r"] == 0.75 and stats["by"]["side"]["short"]["n"] == 1
+    empty = lifetime.build_lifetime(trades.iloc[0:0], summary.iloc[0:0], today=DAYS[0])
+    assert "No closed trades yet." in empty and "## Score calibration" in empty
 
 
 def test_validate_review_reply():
@@ -178,7 +181,7 @@ def test_invalid_review_keeps_previous_memory(state):
 def test_calibration_split_by_memory_version():
     out = outcomes_frame(20)
     out["memory_sha256"] = ["" if i < 10 else "abcdef1234567890" for i in range(20)]
-    summary = pd.DataFrame({"date": DAYS[:1], "equity_start": [100_000.0], "equity_end": [100_000.0]})
-    stats = lifetime.compute(pd.DataFrame(columns=["pnl_pct", "pnl_usd"]), summary, out)
-    assert set(stats["calibration"]["by_memory_version"]) == {"none", "abcdef123456"}
-    assert "By memory version" in lifetime.render(stats)
+    text = "\n".join(lifetime.calibration_section(out, 5))
+    assert "| memory version | non-zero scores | hit rate |" in text
+    assert "| none |" in text and "| abcdef123456 |" in text
+    assert lifetime.compute(pd.DataFrame(), pd.DataFrame(columns=["date"]), out)["calibration"]["scores"] == 20

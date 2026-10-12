@@ -25,7 +25,7 @@ def load_json(path):
 def init_state():
     """Create the state folder and copy missing defaults into it. Never overwrites. Returns what it created."""
     created = []
-    for d in (paths.state_dir(), paths.news_dir(), paths.scores_dir(), paths.reports_dir()):
+    for d in (paths.state_dir(), paths.news_dir(), paths.scores_dir(), paths.reports_dir("paper")):
         if not d.exists():
             d.mkdir(parents=True)
             created.append(str(d))

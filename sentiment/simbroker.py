@@ -19,8 +19,8 @@ class SimBroker:
         if state_path.exists():
             self.s = json.loads(state_path.read_text())
         else:
-            self.s = {"cash": starting_cash, "positions": {}, "orders": {}, "marks": {}, "equity_close": {},
-                      "next_id": 1}
+            self.s = {"cash": starting_cash, "start_equity": starting_cash, "positions": {}, "orders": {},
+                      "marks": {}, "equity_close": {}, "next_id": 1}
 
     def _save(self):
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -34,7 +34,7 @@ class SimBroker:
         today = self.clock().date().isoformat()
         equity = self._equity()
         earlier = [d for d in self.s["equity_close"] if d < today]
-        last = self.s["equity_close"][max(earlier)] if earlier else equity
+        last = self.s["equity_close"][max(earlier)] if earlier else self.s.get("start_equity", equity)
         return Account(account_number=SIM_ACCOUNT, equity=equity, last_equity=last)
 
     def trading_days(self, start, end):
