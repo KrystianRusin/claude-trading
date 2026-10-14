@@ -443,14 +443,14 @@ def main(argv=None):
     import score
 
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--book", choices=["paper", "dry_run", "replay"])
+    ap.add_argument("--book", choices=["paper", "dry_run", "replay"], default="paper")
     ap.add_argument("--since", type=date.fromisoformat)
     ap.add_argument("--config-version", type=int)
     ap.add_argument("--day", type=date.fromisoformat, help="write only the day report for this date")
     ap.add_argument("--no-baseline", action="store_true")
     ap.add_argument("--no-market", action="store_true")
     args = ap.parse_args(argv)
-    book = args.book or config.load_config()["mode"]
+    book = args.book
     d = paths.book_dir(book)
     out = paths.reports_dir(book)
     out.mkdir(parents=True, exist_ok=True)

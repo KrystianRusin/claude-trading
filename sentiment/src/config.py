@@ -26,7 +26,7 @@ def init_data():
     """Create the data folder and copy missing defaults into it. Never overwrites. Returns what it created."""
     created = []
     dirs = [paths.data_dir(), paths.news_dir(), paths.scores_dir(), paths.memory_dir(), paths.logs_dir()]
-    for d in dirs + [paths.reports_dir(m) for m in ("paper", "dry_run")]:
+    for d in dirs + [paths.reports_dir("paper")]:
         if not d.exists():
             d.mkdir(parents=True)
             created.append(str(d))
@@ -81,12 +81,21 @@ def validate(cfg, bounds):
     return errors
 
 
+def _drop_retired_keys(path, cfg):
+    """Remove keys that no longer exist (`mode`) from a config file, so old configs still load."""
+    if "mode" not in cfg:
+        return cfg
+    cfg = {k: v for k, v in cfg.items() if k != "mode"}
+    path.write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
+    return cfg
+
+
 def load_config(path=None):
     """The active config, refusing to return one that breaks config_bounds.json."""
     path = path or paths.config_file()
     if not path.exists():
         raise ConfigError(f"{path} not found; run `python src/config.py` or scripts/setup.sh")
-    cfg = load_json(path)
+    cfg = _drop_retired_keys(path, load_json(path))
     errors = validate(cfg, load_json(paths.CONFIG_BOUNDS))
     if errors:
         raise ConfigError(f"{path} is out of bounds: " + "; ".join(errors))
@@ -115,7 +124,7 @@ def main():
     except ConfigError as e:
         print(e)
         return 1
-    print(f"config OK: version {cfg['version']}, mode {cfg['mode']}; watchlist: {len(symbols)} symbols")
+    print(f"config OK: version {cfg['version']}; watchlist: {len(symbols)} symbols")
     return 0
 
 

@@ -505,7 +505,8 @@ def show_positions(broker, book):
     rows = book.positions()
     held = [r["symbol"] for r in rows if r["status"] != "pending"]
     prices = broker.latest_prices(held) if held else {}
-    lines = [f"# Holdings ({book.mode}) at {now:%Y-%m-%d %H:%M} ET", "", holdings_table(rows, now.date(), prices)]
+    lines = [f"# Holdings ({book.mode}) at {now:%Y-%m-%d %H:%M} ET", "", f"From {book.positions_path}", "",
+             holdings_table(rows, now.date(), prices)]
     pending = [r["symbol"] for r in rows if r["status"] == "pending"]
     if pending:
         lines += ["", f"Entries waiting for a fill: {', '.join(pending)}"]
@@ -525,7 +526,7 @@ def main(argv=None):
 
     ap = argparse.ArgumentParser(description="sentiment swing trader")
     ap.add_argument("command", choices=["run", "close", "replay", "positions"])
-    ap.add_argument("--dry-run", action="store_true", help="simulated fills in data/books/dry_run/")
+    ap.add_argument("--dry-run", action="store_true", help="simulated fills instead of paper orders")
     ap.add_argument("--force", action="store_true", help="ignore the calendar and run time checks")
     ap.add_argument("--from", dest="start", type=date.fromisoformat)
     ap.add_argument("--to", dest="end", type=date.fromisoformat)
@@ -550,7 +551,7 @@ def main(argv=None):
             print(f"replay {args.start}..{args.end}: {len(trades)} closed trades, P&L {pnl:.2f} USD; "
                   f"books in {book.dir}")
             return 0
-        mode = "dry_run" if args.dry_run or cfg["mode"] == "dry_run" else "paper"
+        mode = "dry_run" if args.dry_run else "paper"
         if args.command == "positions":
             print(show_positions(make_broker(cfg, verify_account=False), Book(paths.book_dir(mode), mode)))
             return 0

@@ -73,16 +73,15 @@ logged or printed.
 
 The times avoid the paper-trader's 09:00 start and 17:00 review.
 
-## Dry-run, then paper orders
+## Running
 
-The trader starts with `"mode": "dry_run"` in `data/config.json`: real data and scores, simulated
-fills, books in `data/books/dry_run/`. After about 30 scored sessions, switch to paper orders by
-setting `"mode": "paper"` in `data/config.json`. Paper books go to `data/books/paper/`.
+The cron jobs trade the paper account; the book is `data/books/paper/`.
 
 `trader.py run` and `close` do nothing on market holidays and weekends; `--force` runs them anyway.
 `close` logs the path of the daily summary it wrote.
 
-`--dry-run` on `trader.py run` or `close` forces dry-run for one job.
+`--dry-run` on any `trader.py` command uses simulated fills and a separate book in
+`data/books/dry_run/` instead, for trying changes without placing orders.
 
 ## Commands
 
@@ -128,8 +127,8 @@ setting `"mode": "paper"` in `data/config.json`. Paper books go to `data/books/p
 ## Stats
 
 The stats use the same files, columns, sections and math as the paper-trader (`claude-trade`), so
-both books read the same way and can be aggregated by one tool. `<book>` is `data/books/paper/` or
-`data/books/dry_run/`.
+both books read the same way and can be aggregated by one tool. `<book>` is `data/books/paper/`, or
+`data/books/dry_run/` with `--book dry_run`.
 
 | What | Where | Same as the paper-trader |
 |---|---|---|

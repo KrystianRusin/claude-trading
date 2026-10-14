@@ -96,10 +96,10 @@ def main(argv=None):
     from logger import read_trades_frame, setup_logging
 
     ap = argparse.ArgumentParser(description="compare with the paper-trader")
-    ap.add_argument("--book", choices=["paper", "dry_run"])
+    ap.add_argument("--book", choices=["paper", "dry_run"], default="paper")
     args = ap.parse_args(argv)
     setup_logging("compare")
-    book = args.book or config.load_config()["mode"]
+    book = args.book
     ours_dir = paths.book_dir(book)
     ours = read_summary(ours_dir / "daily_summary.csv")
     other = os.environ.get("PAPER_TRADER_STATE")

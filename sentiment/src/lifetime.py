@@ -288,12 +288,12 @@ def main(argv=None):
     from logger import setup_logging
 
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--book", choices=["paper", "dry_run", "replay"])
+    ap.add_argument("--book", choices=["paper", "dry_run", "replay"], default="paper")
     ap.add_argument("--no-baseline", action="store_true", help="download nothing: no SPY baseline or calibration")
     args = ap.parse_args(argv)
     log = setup_logging("lifetime")
     cfg = config.load_config()
-    book = args.book or cfg["mode"]
+    book = args.book
     build(book, cfg["exit"]["max_hold_days"], log, fetch=not args.no_baseline)
     print(paths.lifetime_file(book).read_text(encoding="utf-8"))
     print(f"written to {paths.lifetime_file(book)}")

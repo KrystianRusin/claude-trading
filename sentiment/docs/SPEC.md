@@ -212,9 +212,8 @@ trade row records.
 - Credentials only from `.env` or the environment; never logged or printed.
 - Config validated against `defaults/config_bounds.json` at every start; refuse to run if out of bounds.
 - The scoring run has no tools and its output is schema-checked; nothing Claude writes is executed.
-- Dry-run mode (`--dry-run`): real data and scores, simulated fills, separate `data/books/dry_run/`.
-  The cron jobs run in dry-run until 30 scored sessions exist, then the user switches to paper
-  orders by setting `"mode": "paper"` in `data/config.json`.
+- Dry-run (`--dry-run`): real data and scores, simulated fills, separate `data/books/dry_run/`.
+  For trying changes; the cron jobs always trade the paper account.
 
 ## 11. One-time setup (`scripts/setup.sh`)
 
@@ -243,7 +242,7 @@ Run once on the Pi from the repo root; safe to re-run, every step skips what is 
    ```
    Times avoid the paper-trader's 09:00 start and its 17:00 review and universe screen, so the Pi
    is not running both heavy jobs at once.
-9. Prints the schedule, log locations and how to switch from dry-run to paper orders.
+9. Prints the schedule and log locations.
 
 `scripts/backup.sh` keeps the last 30 nightly `tar.gz` archives of `data/` in `data/backups/` and
 copies the newest to `BACKUP_DIR` when set.
@@ -269,11 +268,10 @@ copies the newest to `BACKUP_DIR` when set.
 5. `trader.py` run/close with OTO orders, restart reconciliation, kill switch, dry-run and replay.
 6. Logging, `analyze.py`, `compare.py`.
 7. `scripts/setup.sh`, `scripts/backup.sh`, README (setup, second paper account, schedule,
-   switching to paper orders, not-financial-advice note).
+   not-financial-advice note).
 
 ## 14. Open items for the user
 
 - The starting watchlist: about 20 consumer-facing companies with steady news flow.
-- When to switch from dry-run to paper orders (default: after 30 scored sessions).
 - Whether to try a dedicated classification model later and compare it with Claude's scores
   on the same archived news.

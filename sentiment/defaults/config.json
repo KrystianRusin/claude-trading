@@ -1,6 +1,5 @@
 {
   "version": 1,
-  "mode": "dry_run",
   "entry": {"min_score": 2, "min_confidence_at_score_1": 0.7, "allow_score_1": true,
             "allow_shorts": true, "run_time": "09:45"},
   "exit": {"max_hold_days": 5, "exit_on_score_flip": true,

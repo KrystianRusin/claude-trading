@@ -166,7 +166,7 @@ def main(argv=None):
 
     ap = argparse.ArgumentParser(description="weekly self-review")
     ap.add_argument("command", choices=["run", "show"])
-    ap.add_argument("--book", choices=["paper", "dry_run"])
+    ap.add_argument("--book", choices=["paper", "dry_run"], default="paper")
     args = ap.parse_args(argv)
     config.init_data()
     log = setup_logging("review")
@@ -176,7 +176,7 @@ def main(argv=None):
         return 0
     cfg = config.load_config()
     try:
-        mem = review(datetime.now(ET), args.book or cfg["mode"], cfg, log=log)
+        mem = review(datetime.now(ET), args.book, cfg, log=log)
     except Exception as e:
         log.exception("review failed")
         notify(f"weekly review failed, memory unchanged: {e}")

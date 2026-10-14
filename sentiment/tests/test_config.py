@@ -38,11 +38,18 @@ def test_unknown_missing_and_enum_keys():
     cfg, bounds = defaults()
     cfg["risk"]["leverage"] = 4
     del cfg["exit"]["atr_days"]
-    cfg["mode"] = "live"
+    cfg["data_feed"] = "sip"
     errors = config.validate(cfg, bounds)
     assert any("unknown key risk.leverage" in e for e in errors)
     assert any("missing key exit.atr_days" in e for e in errors)
-    assert any("mode=" in e for e in errors)
+    assert any("data_feed=" in e for e in errors)
+
+
+def test_old_mode_key_is_dropped(state):
+    cfg = json.loads(paths.config_file().read_text())
+    paths.config_file().write_text(json.dumps(cfg | {"mode": "dry_run"}))
+    assert "mode" not in config.load_config()
+    assert "mode" not in json.loads(paths.config_file().read_text())
 
 
 def test_init_data_copies_defaults_and_never_overwrites(state):

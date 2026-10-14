@@ -258,7 +258,7 @@ def main(argv=None):
         return 0
     cfg = config.load_config()
     symbols = universe.load(config.load_watchlist())
-    held = [r["symbol"] for r in Book(paths.book_dir(cfg["mode"]), cfg["mode"]).positions()]
+    held = [r["symbol"] for r in Book(paths.book_dir("paper"), "paper").positions()]
     try:
         broker = make_broker(cfg, verify_account=False)
         log.info("news fetch before scoring: %d new articles", news.fetch(broker, symbols, now))

@@ -188,6 +188,5 @@ Schedule (local time, Eastern):
 
 Logs: data/logs/cron.log (everything), data/logs/sentiment.log (warnings and errors).
 
-The trader starts in dry-run (books in data/books/dry_run/). After 30 scored sessions,
-switch to paper orders by setting "mode": "paper" in data/config.json.
+The trader places orders on the paper account; its book is data/books/paper/.
 EOF
