@@ -1,7 +1,6 @@
 .env
 .venv/
-state/
-backups/
+data/
 HALT
 __pycache__/
 .pytest_cache/

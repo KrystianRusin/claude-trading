@@ -1,7 +1,7 @@
 """Alpaca paper backend: account, orders, positions, calendar, daily bars and news. Paper only.
 
-Run `python broker.py` to check credentials, the account, the calendar and a sample of news.
-`python broker.py account-number --env <path>` prints the account number for the keys in another
+Run `python src/broker.py` to check credentials, the account, the calendar and a sample of news.
+`python src/broker.py account-number --env <path>` prints the account number for the keys in another
 .env file (setup uses it to read the paper-trader's account without printing its keys).
 """
 import argparse
@@ -99,7 +99,7 @@ def load_credentials(env_file=None):
     if env_file:
         values = dotenv_values(env_file)
     else:
-        load_dotenv(paths.REPO / ".env")
+        load_dotenv(paths.ENV_FILE)
         values = os.environ
     key, secret = values.get("ALPACA_API_KEY"), values.get("ALPACA_SECRET_KEY")
     if not key or not secret:
@@ -328,7 +328,7 @@ class AlpacaBroker:
 
 
 def make_broker(cfg, verify_account=True):
-    load_dotenv(paths.REPO / ".env")
+    load_dotenv(paths.ENV_FILE)
     broker = AlpacaBroker(feed=cfg.get("data_feed", "iex"))
     if verify_account:
         broker.verify_separate_account()
@@ -336,7 +336,7 @@ def make_broker(cfg, verify_account=True):
 
 
 def load_bars(symbols, start, end, broker=None):
-    """Daily bars from the cache in state/bars/, fetching and saving missing ranges when a broker is given."""
+    """Daily bars from the cache in data/bars/, fetching and saving missing ranges when a broker is given."""
     paths.bars_dir().mkdir(parents=True, exist_ok=True)
     out = {}
     missing = []

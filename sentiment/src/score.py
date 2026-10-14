@@ -1,7 +1,7 @@
 """Daily sentiment scores: archived news in, one validated score per symbol with news out.
 
-    python score.py run          score news since the previous scoring run into state/scores/<today>.json
-    python score.py show [DATE]  print a score file
+    python src/score.py run          score news since the previous scoring run into data/scores/<today>.json
+    python src/score.py show [DATE]  print a score file
 
 Claude runs headless (`claude -p`) with no tools as a one-shot classifier. Its output is parsed and
 schema-checked here; nothing it writes is executed. Score files are never edited once written.
@@ -193,7 +193,7 @@ def score_batch(model_input, prompt, caller, log=None):
 def score(now, universe, ucfg, priority=(), caller=call_claude, log=None, mem=None):
     """Score the news since the previous run in batches. Returns the score file path.
 
-    `mem` is the lessons memory to append to the prompt; prompt_sha256 covers SCORING_PROMPT.md and
+    `mem` is the lessons memory to append to the prompt; prompt_sha256 covers prompts/scoring.md and
     memory_sha256 the lessons, so results can be split by either.
 
     Symbols in a batch that fails twice are left out and listed in `failed_symbols`. Raises, writing
@@ -249,7 +249,7 @@ def main(argv=None):
     ap.add_argument("command", choices=["run", "show"])
     ap.add_argument("day", nargs="?", help="YYYY-MM-DD for show (default today)")
     args = ap.parse_args(argv)
-    config.init_state()
+    config.init_data()
     log = setup_logging("score")
     now = datetime.now(ET)
     if args.command == "show":

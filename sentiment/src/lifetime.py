@@ -1,6 +1,6 @@
 """All-time statistics since the first trading day, in the same format as the paper-trader's lifetime.md.
 
-    python lifetime.py [--book paper|dry_run|replay] [--no-baseline]
+    python src/lifetime.py [--book paper|dry_run|replay] [--no-baseline]
 
 Writes <book>/lifetime.md to read and <book>/lifetime.json for the weekly review. After the
 paper-trader's sections it adds the sentiment-specific ones: by score, confidence and memory

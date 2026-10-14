@@ -1,9 +1,9 @@
 """Once-a-day trader: entries and exits on today's scores, the end-of-day reconcile, and replays.
 
-    python trader.py run [--dry-run] [--force]      09:45: exits, then entries
-    python trader.py close [--dry-run] [--force]    16:15: fills, stop-outs, marks, daily summary
-    python trader.py replay --from DATE --to DATE   rerun the rules over saved score files and daily bars
-    python trader.py positions [--dry-run]           current holdings at live prices (read-only)
+    python src/trader.py run [--dry-run] [--force]      09:45: exits, then entries
+    python src/trader.py close [--dry-run] [--force]    16:15: fills, stop-outs, marks, daily summary
+    python src/trader.py replay --from DATE --to DATE   rerun the rules over saved score files and daily bars
+    python src/trader.py positions [--dry-run]           current holdings at live prices (read-only)
 
 A file named HALT in the repo root makes every job place no entries and close all positions.
 """
@@ -313,11 +313,11 @@ class Trader:
 
     def run(self, force=False):
         if not force and self.today not in self.calendar():
-            self.log.info("market closed today; nothing to do")
+            self.log.info("market closed today; nothing to do (--force runs anyway)")
             return
         run_at = time.fromisoformat(self.cfg["entry"]["run_time"])
         if not force and self.now.time() < run_at:
-            self.log.info("before the %s run time; nothing to do", run_at)
+            self.log.info("before the %s run time; nothing to do (--force runs anyway)", run_at)
             return
         self.reconcile()
         acct = self.broker.get_account()
@@ -383,7 +383,7 @@ class Trader:
 
     def close(self, force=False):
         if not force and self.today not in self.calendar():
-            self.log.info("market closed today; nothing to do")
+            self.log.info("market closed today; nothing to do (--force runs anyway)")
             return
         self.broker.on_close(self.today)
         self.reconcile()
@@ -422,8 +422,9 @@ class Trader:
             "net_exposure": round(net, 2),
             "entries": sum(1 for e in events if e["event"] == "submit" and e["client_order_id"].endswith("-entry")),
             "scored": self.load_scores(self.today) is not None})
-        self.log.info("close done: equity %.2f, day P&L %+.2f (realized %+.2f), %d positions, gross %.1f%%, net %.1f%%",
-                      acct.equity, acct.equity - acct.last_equity, realized, len(values), gross, net)
+        self.log.info("close done: equity %.2f, day P&L %+.2f (realized %+.2f), %d positions, gross %.1f%%, net %.1f%%; "
+                      "summary in %s", acct.equity, acct.equity - acct.last_equity, realized, len(values), gross, net,
+                      self.book.summary_path)
 
     def mark_to_market(self):
         held = [r["symbol"] for r in self.rows if r["status"] != "pending"]
@@ -477,7 +478,7 @@ def scored_symbols(start, end):
 
 
 def replay(start, end, cfg, bars, log):
-    """Run the rules day by day over saved score files and bars into state/replay/. Returns the book."""
+    """Run the rules day by day over saved score files and bars into data/books/replay/. Returns the book."""
     from simbroker import SimBroker
 
     book = Book(paths.book_dir("replay"), "replay")
@@ -524,12 +525,12 @@ def main(argv=None):
 
     ap = argparse.ArgumentParser(description="sentiment swing trader")
     ap.add_argument("command", choices=["run", "close", "replay", "positions"])
-    ap.add_argument("--dry-run", action="store_true", help="simulated fills in state/dry_run/")
+    ap.add_argument("--dry-run", action="store_true", help="simulated fills in data/books/dry_run/")
     ap.add_argument("--force", action="store_true", help="ignore the calendar and run time checks")
     ap.add_argument("--from", dest="start", type=date.fromisoformat)
     ap.add_argument("--to", dest="end", type=date.fromisoformat)
     args = ap.parse_args(argv)
-    config.init_state()
+    config.init_data()
     log = setup_logging("trader")
     try:
         cfg = config.load_config()

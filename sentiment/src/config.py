@@ -1,6 +1,6 @@
-"""State folder setup, config validation against config_bounds.json, and the watchlist.
+"""Data folder setup, config validation against defaults/config_bounds.json, and the watchlist.
 
-Run `python config.py` to create missing state files from the defaults and validate them.
+Run `python src/config.py` to create the data folder from the defaults and validate it.
 """
 import json
 import re
@@ -22,10 +22,11 @@ def load_json(path):
         return json.load(f)
 
 
-def init_state():
-    """Create the state folder and copy missing defaults into it. Never overwrites. Returns what it created."""
+def init_data():
+    """Create the data folder and copy missing defaults into it. Never overwrites. Returns what it created."""
     created = []
-    for d in (paths.state_dir(), paths.news_dir(), paths.scores_dir(), paths.reports_dir("paper")):
+    dirs = [paths.data_dir(), paths.news_dir(), paths.scores_dir(), paths.memory_dir(), paths.logs_dir()]
+    for d in dirs + [paths.reports_dir(m) for m in ("paper", "dry_run")]:
         if not d.exists():
             d.mkdir(parents=True)
             created.append(str(d))
@@ -84,7 +85,7 @@ def load_config(path=None):
     """The active config, refusing to return one that breaks config_bounds.json."""
     path = path or paths.config_file()
     if not path.exists():
-        raise ConfigError(f"{path} not found; run `python config.py` or scripts/setup.sh")
+        raise ConfigError(f"{path} not found; run `python src/config.py` or scripts/setup.sh")
     cfg = load_json(path)
     errors = validate(cfg, load_json(paths.CONFIG_BOUNDS))
     if errors:
@@ -95,7 +96,7 @@ def load_config(path=None):
 def load_watchlist(path=None):
     path = path or paths.watchlist_file()
     if not path.exists():
-        raise ConfigError(f"{path} not found; run `python config.py` or scripts/setup.sh")
+        raise ConfigError(f"{path} not found; run `python src/config.py` or scripts/setup.sh")
     symbols = load_json(path).get("symbols")
     if not isinstance(symbols, list) or not 1 <= len(symbols) <= 40:
         raise ConfigError(f"{path}: 'symbols' must be a list of 1 to 40 tickers")
@@ -106,7 +107,7 @@ def load_watchlist(path=None):
 
 
 def main():
-    for p in init_state():
+    for p in init_data():
         print(f"created {p}")
     try:
         cfg = load_config()

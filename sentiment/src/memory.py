@@ -1,4 +1,4 @@
-"""Claude's lessons memory: state/memory.json (data), state/memory.md (to read), state/memory_history/ (every version).
+"""Claude's lessons memory in data/memory/: memory.json (data), memory.md (to read), history/ (every version).
 
 review.py writes it after validating Claude's review; score.py adds the lessons to the scoring prompt.
 """
@@ -48,9 +48,9 @@ def render(mem):
 def save(mem):
     """Write the memory, its readable copy and a history snapshot."""
     mem = mem | {"memory_sha256": sha256(mem)}
+    paths.memory_history_dir().mkdir(parents=True, exist_ok=True)
     paths.memory_json().write_text(json.dumps(mem, indent=1, ensure_ascii=False), encoding="utf-8")
     paths.memory_file().write_text(render(mem), encoding="utf-8")
-    paths.memory_history_dir().mkdir(parents=True, exist_ok=True)
     stamp = mem["updated_at"][:19].replace(":", "")
     (paths.memory_history_dir() / f"{stamp}.json").write_text(json.dumps(mem, indent=1, ensure_ascii=False),
                                                               encoding="utf-8")

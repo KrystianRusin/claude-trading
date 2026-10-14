@@ -163,8 +163,8 @@ def read_trades_frame(path):
 
 
 def setup_logging(name):
-    """Console logging at INFO plus warnings and errors with tracebacks in state/sentiment.log. Loads .env."""
-    load_dotenv(paths.REPO / ".env")
+    """Console logging at INFO plus warnings and errors with tracebacks in data/logs/sentiment.log. Loads .env."""
+    load_dotenv(paths.ENV_FILE)
     log = logging.getLogger(name)
     log.setLevel(logging.INFO)
     for h in list(log.handlers):
@@ -174,7 +174,7 @@ def setup_logging(name):
     console = logging.StreamHandler()
     console.setFormatter(fmt)
     log.addHandler(console)
-    paths.state_dir().mkdir(parents=True, exist_ok=True)
+    paths.logs_dir().mkdir(parents=True, exist_ok=True)
     file = logging.FileHandler(paths.log_file(), encoding="utf-8")
     file.setFormatter(fmt)
     file.setLevel(logging.WARNING)

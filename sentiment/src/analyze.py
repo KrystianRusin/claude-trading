@@ -1,7 +1,7 @@
 """Performance report and day report for a book, in the same format as the paper-trader's.
 
-    python analyze.py [--book paper|dry_run|replay] [--since DATE] [--config-version N] [--no-baseline]
-    python analyze.py --day DATE [--book ...] [--no-market]
+    python src/analyze.py [--book paper|dry_run|replay] [--since DATE] [--config-version N] [--no-baseline]
+    python src/analyze.py --day DATE [--book ...] [--no-market]
 
 Writes <book>/reports/report_<date>.md over all closed trades, and <book>/reports/day_<date>.md for
 one day: equity and P&L, closed trades, holdings at the close, scores, skipped entries and warnings.

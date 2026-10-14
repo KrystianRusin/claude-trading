@@ -1,6 +1,6 @@
-"""Side-by-side report of this book and the paper-trader's over their overlapping days: state/comparison.md.
+"""Side-by-side report of this book and the paper-trader's over their overlapping days: data/comparison.md.
 
-    python compare.py [--book paper|dry_run]
+    python src/compare.py [--book paper|dry_run]
 
 Reads the paper-trader's state folder (PAPER_TRADER_STATE in .env) read-only. Both books keep a
 daily_summary.csv with date, equity_start and equity_end; daily returns come from those.

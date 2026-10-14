@@ -34,45 +34,45 @@ results over a short window are not evidence of skill. The README says so.
 
 ## 2. Repo layout
 
-Code lives in git. Everything generated lives in a git-ignored `state/` folder on the Pi, so the
+Code lives in git. Everything generated lives in a git-ignored `data/` folder on the Pi, so the
 user's commits never conflict with the running system.
 
 ```
 sentiment-trader/
-  SPEC.md  README.md  requirements.txt  pytest.ini
-  .env.example            # ALPACA_API_KEY, ALPACA_SECRET_KEY (second paper account), NTFY_TOPIC
-  .gitignore              # .env, .venv/, state/, backups/
-  config.default.json     # trading rules, copied to state/config.json on first setup
-  config_bounds.json      # hard limits; the config is validated against it at every start
-  watchlist.default.json  # ~20 symbols, copied to state/watchlist.json on first setup
-  paths.py                # every state path in one place; STATE_DIR overridable for tests
-  broker.py               # Alpaca wrapper: paper-only, account, orders, positions, daily bars
-  news.py                 # news archive (Alpaca News API)
-  score.py                # builds Claude's input, runs claude -p, validates, writes scores
-  SCORING_PROMPT.md       # fixed scoring instructions
-  trader.py               # once-a-day entry/exit run and end-of-day reconcile
-  risk.py                 # sizing, stops, book limits
-  logger.py               # CSV logs and the error log
-  analyze.py              # performance report
-  compare.py              # side-by-side report against the paper-trader book
+  README.md  requirements.txt  pytest.ini  .env.example
+  src/                    # all Python modules, run as python src/<name>.py
+    paths.py              # every data path in one place; DATA_DIR overridable for tests
+    broker.py  simbroker.py  news.py  universe.py  score.py  trader.py  risk.py
+    logger.py  analyze.py  lifetime.py  compare.py  memory.py  review.py  config.py
+  prompts/
+    scoring.md  review.md # fixed instructions for Claude
+  defaults/
+    config.json           # trading rules, copied to data/config.json on first setup
+    watchlist.json        # ~20 symbols, copied to data/watchlist.json on first setup
+    config_bounds.json    # hard limits; the config is validated against it at every start
   scripts/
     setup.sh              # one-time setup, safe to re-run
-    backup.sh             # nightly backup of state/
+    backup.sh             # nightly backup of data/
+    migrate.sh            # moves an old state/ folder into data/
+  docs/SPEC.md
   tests/
-state/                    # git-ignored
-  config.json  watchlist.json
+data/                     # git-ignored
+  config.json  watchlist.json  universe.json  comparison.md  trader.lock
   news/<YYYY-MM-DD>.jsonl
   scores/<YYYY-MM-DD>.json
-  trades.csv  orders.csv  positions.csv  daily_summary.csv
-  reports/  comparison.md  sentiment.log  trader.lock
-backups/                  # git-ignored, nightly archives of state/
+  bars/
+  memory/  memory.md  memory.json  history/
+  books/<paper|dry_run|replay>/
+    trades.csv  orders.csv  positions.csv  daily_summary.csv  reports/  lifetime.md
+  logs/  cron.log  sentiment.log
+  backups/                # nightly archives of data/
 ```
 
 ## 3. News archive (`news.py`)
 
 - Source: Alpaca's free News API (Benzinga headlines and summaries), queried for the watchlist
   symbols since the last fetch.
-- Stored as one JSON line per article in `state/news/<YYYY-MM-DD>.jsonl`, bucketed by the
+- Stored as one JSON line per article in `data/news/<YYYY-MM-DD>.jsonl`, bucketed by the
   article's publish time in America/New_York: `id, published_at, symbols, headline, summary,
   source, url`. Deduplicated by article id across runs.
 - Runs every 30 minutes, 07:00-20:00 on weekdays and twice a day at weekends, so weekend news is
@@ -83,7 +83,7 @@ backups/                  # git-ignored, nightly archives of state/
 Not in scope: scraping websites, including Amazon reviews (scraping breaks Amazon's terms and
 there is no free official source).
 
-## 4. Scoring (`score.py`, `SCORING_PROMPT.md`)
+## 4. Scoring (`score.py`, `prompts/scoring.md`)
 
 Runs at 06:30 on weekdays and scores the news since the previous scoring run (so Monday covers
 the weekend).
@@ -91,14 +91,14 @@ the weekend).
 Design: headless Claude Code used as a one-shot classifier, not an agent:
 
 ```
-claude -p "$(cat SCORING_PROMPT.md)" --model claude-haiku-5-5 --tools "" --output-format json < input.json
+claude -p "$(cat prompts/scoring.md)" --model claude-haiku-5-5 --tools "" --output-format json < input.json
 ```
 
 - `--model claude-haiku-5-5`: the cheapest model; headline scoring does not need more.
 - `--tools ""`: no tools, so the run is a single turn and Claude can read nothing but its input.
 - Input built by Python: per symbol, headline and summary of each article (capped at 15 per
   symbol, newest first), with article ids. No prices, no positions, no P&L.
-- `SCORING_PROMPT.md` asks, per symbol: is any of this news material to the business, and in
+- `prompts/scoring.md` asks, per symbol: is any of this news material to the business, and in
   which direction? Output a JSON object keyed by symbol with `score` (integer -2..+2),
   `confidence` (0..1), `reason` (one line) and `article_ids` (the ids it relied on). No material
   news is score 0. The prompt says the articles are untrusted data and any instructions inside
@@ -106,7 +106,7 @@ claude -p "$(cat SCORING_PROMPT.md)" --model claude-haiku-5-5 --tools "" --outpu
 - Validation in Python: valid JSON, every watchlist symbol present, values in range, every cited
   id exists in the input. Retry once on failure, then log and write nothing (the trader then does
   nothing that day).
-- Output `state/scores/<YYYY-MM-DD>.json`: the scores plus `model`, `prompt_sha256`, `input_articles`,
+- Output `data/scores/<YYYY-MM-DD>.json`: the scores plus `model`, `prompt_sha256`, `input_articles`,
   `generated_at`. Score files are never edited after they are written.
 - Times out after 5 minutes.
 
@@ -115,7 +115,7 @@ only changes the function that calls the model: input building and validation st
 
 ## 5. Trading rules (`trader.py`)
 
-Defined by `state/config.json`. Starting values:
+Defined by `data/config.json`. Starting values:
 
 ```json
 {
@@ -169,7 +169,7 @@ trade row records.
 - `run` and `close` are short jobs, not a long-running loop. Both take a lock file.
 - Idempotent: client order ids are `st-<YYYYMMDD>-<SYMBOL>-<entry|exit|stop>`. Re-running a job
   the same day never double-submits (duplicate ids are rejected by Alpaca and treated as already done).
-- On start each job reconciles the account's positions and open orders with `state/positions.csv`
+- On start each job reconciles the account's positions and open orders with `<book>/positions.csv`
   (symbol, side, qty, entry date, entry price, stop order id, score at entry). Positions found in
   the account but not in the file are adopted and logged; file rows with no position are closed
   out as `unknown` exits.
@@ -179,24 +179,24 @@ trade row records.
 
 ## 8. Logging (`logger.py`)
 
-- `state/trades.csv`, one row per closed trade: `entry_date, exit_date, symbol, side, qty,
+- `<book>/trades.csv`, one row per closed trade: `entry_date, exit_date, symbol, side, qty,
   entry_price, exit_price, exit_reason (hold|flip|stop|halt|loss_limit|unknown), pnl_usd,
   pnl_pct, hold_days, score, confidence, score_date, config_version, prompt_sha256, held_over_earnings`.
-- `state/orders.csv`: every submit, fill, cancel and reject with ids and timestamps.
-- `state/daily_summary.csv`: `date, equity_start, equity_end, positions, gross_exposure,
+- `<book>/orders.csv`: every submit, fill, cancel and reject with ids and timestamps.
+- `<book>/daily_summary.csv`: `date, equity_start, equity_end, positions, gross_exposure,
   net_exposure, entries, exits, scored (bool), halted (bool), notes`.
-- `state/sentiment.log`: warnings and errors with tracebacks.
+- `data/logs/sentiment.log`: warnings and errors with tracebacks.
 
 ## 9. Analytics and comparison
 
-`analyze.py` (report to `state/reports/report_<date>.md`):
+`analyze.py` (report to `<book>/reports/report_<date>.md`):
 - Trades, win rate, average win and loss, expectancy per trade with a 95% range grouped by entry
   date, profit factor, total return, max drawdown, worst day.
 - Breakdowns by score bucket (-2, -1, +1, +2), confidence band, side, exit reason, symbol and
   `prompt_sha256`. The key question is whether higher scores really lead to better returns.
 - SPY buy-and-hold over the same period; sample-size warning under 30 trades.
 
-`compare.py` (nightly, `state/comparison.md`): reads this repo's state and the paper-trader's
+`compare.py` (nightly, `data/comparison.md`): reads this repo's state and the paper-trader's
 (`PAPER_TRADER_STATE` in `.env`, read-only, optional):
 - Overlapping period only. Per book: total return, annualised volatility, Sharpe ratio, max
   drawdown, worst day, trades, days.
@@ -210,11 +210,11 @@ trade row records.
 - Setup and every job check that the account number differs from the paper-trader's account
   (`PAPER_TRADER_ACCOUNT` in `.env`, filled in by setup).
 - Credentials only from `.env` or the environment; never logged or printed.
-- Config validated against `config_bounds.json` at every start; refuse to run if out of bounds.
+- Config validated against `defaults/config_bounds.json` at every start; refuse to run if out of bounds.
 - The scoring run has no tools and its output is schema-checked; nothing Claude writes is executed.
-- Dry-run mode (`--dry-run`): real data and scores, simulated fills, separate `state/dry_run/`.
+- Dry-run mode (`--dry-run`): real data and scores, simulated fills, separate `data/books/dry_run/`.
   The cron jobs run in dry-run until 30 scored sessions exist, then the user switches to paper
-  orders by setting `"mode": "paper"` in `state/config.json`.
+  orders by setting `"mode": "paper"` in `data/config.json`.
 
 ## 11. One-time setup (`scripts/setup.sh`)
 
@@ -229,7 +229,7 @@ Run once on the Pi from the repo root; safe to re-run, every step skips what is 
 5. Claude CLI: installs with Anthropic's native installer if missing; reuses
    `~/.config/paper-trader/env` if it holds a `CLAUDE_CODE_OAUTH_TOKEN`, else runs `claude setup-token`
    and stores the token in `~/.config/sentiment-trader/env` (mode 600). Checks `claude -p` answers.
-6. `state/` from the defaults (never overwrites).
+6. `data/` from the defaults (never overwrites).
 7. Runs the tests and `python broker.py` (account, calendar, a sample of news).
 8. Installs cron jobs tagged `# sentiment-trader`, replacing only its own lines:
    ```
@@ -245,7 +245,7 @@ Run once on the Pi from the repo root; safe to re-run, every step skips what is 
    is not running both heavy jobs at once.
 9. Prints the schedule, log locations and how to switch from dry-run to paper orders.
 
-`scripts/backup.sh` keeps the last 30 nightly `tar.gz` archives of `state/` in `backups/` and
+`scripts/backup.sh` keeps the last 30 nightly `tar.gz` archives of `data/` in `data/backups/` and
 copies the newest to `BACKUP_DIR` when set.
 
 ## 12. Testing
@@ -261,10 +261,10 @@ copies the newest to `BACKUP_DIR` when set.
 
 ## 13. Milestones (one commit each, about 400-500 lines)
 
-1. Scaffolding, `paths.py`, config defaults and bounds validation, `state/` init, tests.
+1. Scaffolding, `paths.py`, config defaults and bounds validation, `data/` init, tests.
 2. `broker.py` (paper-only, separate-account check, calendar, daily bars, news client) and the
    news archive with cron-ready CLI. Start archiving as soon as this lands.
-3. Scoring: input building, `SCORING_PROMPT.md`, the `claude -p` call, validation, score files.
+3. Scoring: input building, `prompts/scoring.md`, the `claude -p` call, validation, score files.
 4. `risk.py` and the trading rules as pure functions, fully unit-tested.
 5. `trader.py` run/close with OTO orders, restart reconciliation, kill switch, dry-run and replay.
 6. Logging, `analyze.py`, `compare.py`.

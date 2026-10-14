@@ -45,14 +45,14 @@ def test_unknown_missing_and_enum_keys():
     assert any("mode=" in e for e in errors)
 
 
-def test_init_state_copies_defaults_and_never_overwrites(state):
+def test_init_data_copies_defaults_and_never_overwrites(state):
     cfg_path = paths.config_file()
     assert cfg_path.exists() and paths.watchlist_file().exists()
     assert paths.news_dir().is_dir() and paths.scores_dir().is_dir()
     cfg = json.loads(cfg_path.read_text())
     cfg["risk"]["max_positions"] = 4
     cfg_path.write_text(json.dumps(cfg))
-    assert config.init_state() == []
+    assert config.init_data() == []
     assert config.load_config()["risk"]["max_positions"] == 4
 
 
@@ -73,9 +73,9 @@ def test_watchlist_rejects_bad_symbols(state):
         config.load_watchlist()
 
 
-def test_state_dir_override(state):
-    assert paths.state_dir() == state
-    assert paths.book_dir("dry_run") == state / "dry_run"
-    assert paths.book_dir("paper") == state
+def test_data_dir_override(state):
+    assert paths.data_dir() == state
+    assert paths.book_dir("dry_run") == state / "books" / "dry_run"
+    assert paths.book_dir("paper") == state / "books" / "paper"
     with pytest.raises(ValueError):
         paths.book_dir("live")

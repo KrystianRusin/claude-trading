@@ -74,7 +74,7 @@ else
   set_env ALPACA_SECRET_KEY "$secret"
   unset key secret
 fi
-own=$("$PY" broker.py account-number --env .env) || { echo "The keys do not reach a paper account."; exit 1; }
+own=$("$PY" src/broker.py account-number --env .env) || { echo "The keys do not reach a paper account."; exit 1; }
 echo "OK: keys reach paper account $own"
 
 if [ -n "$(env_value PAPER_TRADER_ACCOUNT)" ]; then
@@ -86,7 +86,7 @@ else
     set_env PAPER_TRADER_ACCOUNT none
   else
     [ -f "$pt/.env" ] || { echo "No .env in $pt."; exit 1; }
-    other=$("$PY" broker.py account-number --env "$pt/.env") || { echo "Could not read the paper-trader's account."; exit 1; }
+    other=$("$PY" src/broker.py account-number --env "$pt/.env") || { echo "Could not read the paper-trader's account."; exit 1; }
     if [ "$other" = "$own" ]; then
       echo "These keys belong to the paper-trader's account. Create a second paper account and use its keys."
       exit 1
@@ -143,29 +143,30 @@ else
   echo "Warning: 'claude -p' did not answer ok. Check the token, then re-run this script."
 fi
 
-step "State folder"
-"$PY" config.py
+step "Data folder"
+[ -d state ] && scripts/migrate.sh
+"$PY" src/config.py
 
 step "Tests"
 "$PY" -m pytest -q
 
 step "Alpaca check (account, calendar, news)"
-"$PY" broker.py
+"$PY" src/broker.py
 
 step "Universe (screening listed stocks, takes a minute or two)"
-"$PY" universe.py build
+"$PY" src/universe.py build
 
 step "Cron jobs"
-LOG="$REPO/state/cron.log"
+LOG="$REPO/data/logs/cron.log"
 RUN="cd $REPO &&"
-cron_lines="*/30 7-20 * * 1-5 $RUN $PY news.py fetch >> $LOG 2>&1 $CRON_TAG
-0 10,18 * * 0,6 $RUN $PY news.py fetch >> $LOG 2>&1 $CRON_TAG
-30 6 * * 1-5 . $SECRETS; $RUN $PY score.py run >> $LOG 2>&1 $CRON_TAG
-45 9 * * 1-5 $RUN $PY trader.py run >> $LOG 2>&1 $CRON_TAG
-15 16 * * 1-5 $RUN $PY trader.py close >> $LOG 2>&1 $CRON_TAG
-30 18 * * 1-5 $RUN $PY analyze.py >> $LOG 2>&1; $PY lifetime.py >> $LOG 2>&1; $PY compare.py >> $LOG 2>&1 $CRON_TAG
-15 19 * * 1-5 $RUN $PY universe.py build >> $LOG 2>&1 $CRON_TAG
-45 19 * * 5 . $SECRETS; $RUN $PY review.py run >> $LOG 2>&1 $CRON_TAG
+cron_lines="*/30 7-20 * * 1-5 $RUN $PY src/news.py fetch >> $LOG 2>&1 $CRON_TAG
+0 10,18 * * 0,6 $RUN $PY src/news.py fetch >> $LOG 2>&1 $CRON_TAG
+30 6 * * 1-5 . $SECRETS; $RUN $PY src/score.py run >> $LOG 2>&1 $CRON_TAG
+45 9 * * 1-5 $RUN $PY src/trader.py run >> $LOG 2>&1 $CRON_TAG
+15 16 * * 1-5 $RUN $PY src/trader.py close >> $LOG 2>&1 $CRON_TAG
+30 18 * * 1-5 $RUN $PY src/analyze.py >> $LOG 2>&1; $PY src/lifetime.py >> $LOG 2>&1; $PY src/compare.py >> $LOG 2>&1 $CRON_TAG
+15 19 * * 1-5 $RUN $PY src/universe.py build >> $LOG 2>&1 $CRON_TAG
+45 19 * * 5 . $SECRETS; $RUN $PY src/review.py run >> $LOG 2>&1 $CRON_TAG
 0 3 * * * $REPO/scripts/backup.sh >> $LOG 2>&1 $CRON_TAG"
 existing=$(crontab -l 2>/dev/null || true)
 { grep -vF "$CRON_TAG" <<<"$existing" || true; echo "$cron_lines"; } | crontab -
@@ -180,13 +181,13 @@ Schedule (local time, Eastern):
   scoring      06:30 weekdays
   trader run   09:45 weekdays (exits early on holidays)
   trader close 16:15 weekdays
-  reports      18:30 weekdays (state/reports/, state/lifetime.md, state/comparison.md)
-  universe     19:15 weekdays (state/universe.json)
-  review       19:45 Fridays (state/memory.md)
-  backup       03:00 daily (backups/)
+  reports      18:30 weekdays (data/books/<mode>/reports/, lifetime.md; data/comparison.md)
+  universe     19:15 weekdays (data/universe.json)
+  review       19:45 Fridays (data/memory/memory.md)
+  backup       03:00 daily (data/backups/)
 
-Logs: state/cron.log (everything), state/sentiment.log (warnings and errors).
+Logs: data/logs/cron.log (everything), data/logs/sentiment.log (warnings and errors).
 
-The trader starts in dry-run (simulated fills in state/dry_run/). After 30 scored sessions,
-switch to paper orders by setting "mode": "paper" in state/config.json.
+The trader starts in dry-run (books in data/books/dry_run/). After 30 scored sessions,
+switch to paper orders by setting "mode": "paper" in data/config.json.
 EOF

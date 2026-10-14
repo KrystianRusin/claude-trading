@@ -1,7 +1,7 @@
-"""News archive: Alpaca News API articles for the universe, one JSON line each in state/news/<date>.jsonl.
+"""News archive: Alpaca News API articles for the universe, one JSON line each in data/news/<date>.jsonl.
 
-    python news.py fetch     archive articles for the universe published since the last fetch
-    python news.py status    articles per day for the last week, and the most covered symbols
+    python src/news.py fetch     archive articles for the universe published since the last fetch
+    python src/news.py status    articles per day for the last week, and the most covered symbols
 
 Articles are bucketed by publish date in America/New_York and deduplicated by id across runs.
 Article text is stored as data and never interpreted.
@@ -107,7 +107,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description="news archive")
     ap.add_argument("command", choices=["fetch", "status"])
     args = ap.parse_args(argv)
-    config.init_state()
+    config.init_data()
     log = setup_logging("news")
     symbols = universe.load(config.load_watchlist())
     now = datetime.now(ET)

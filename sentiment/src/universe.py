@@ -1,7 +1,7 @@
-"""The tradable universe: the most liquid stocks, rebuilt nightly into state/universe.json.
+"""The tradable universe: the most liquid stocks, rebuilt nightly into data/universe.json.
 
-    python universe.py build    screen every listed stock by price and average dollar volume
-    python universe.py show     print the current universe
+    python src/universe.py build    screen every listed stock by price and average dollar volume
+    python src/universe.py show     print the current universe
 
 The watchlist is always included. Without a universe file, the watchlist alone is the universe.
 """
@@ -35,7 +35,7 @@ def screen(assets, bars, ucfg):
 
 
 def build(broker, cfg, now):
-    """Screen the market and write state/universe.json. Returns the record."""
+    """Screen the market and write data/universe.json. Returns the record."""
     assets = broker.list_equities()
     bars = broker.daily_bars([a["symbol"] for a in assets], now - timedelta(days=BAR_LOOKBACK_DAYS), now)
     symbols = screen(assets, bars, cfg["universe"])
@@ -62,7 +62,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description="tradable universe")
     ap.add_argument("command", choices=["build", "show"])
     args = ap.parse_args(argv)
-    config.init_state()
+    config.init_data()
     log = setup_logging("universe")
     if args.command == "show":
         f = paths.universe_file()

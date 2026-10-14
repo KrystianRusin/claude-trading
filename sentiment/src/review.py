@@ -1,10 +1,10 @@
 """Weekly self-review: Claude reads how its scores turned out and updates its lessons memory.
 
-    python review.py run     review if enough new outcomes exist since the last review
-    python review.py show    print the current memory
+    python src/review.py run     review if enough new outcomes exist since the last review
+    python src/review.py show    print the current memory
 
 Python builds the evidence (calibration, trade stats, examples with headlines), Claude replies with
-JSON only, and Python validates it before writing state/memory.json and state/memory.md. A failed
+JSON only, and Python validates it before writing data/memory/memory.json and memory.md. A failed
 or invalid review leaves the previous memory in place.
 """
 import argparse
@@ -35,7 +35,7 @@ LESSON_KEYS = {"lesson", "evidence", "confidence"}
 
 
 def prompt_text():
-    return (paths.REPO / "REVIEW_PROMPT.md").read_text(encoding="utf-8")
+    return paths.REVIEW_PROMPT.read_text(encoding="utf-8")
 
 
 def _articles_by_id(day):
@@ -168,7 +168,7 @@ def main(argv=None):
     ap.add_argument("command", choices=["run", "show"])
     ap.add_argument("--book", choices=["paper", "dry_run"])
     args = ap.parse_args(argv)
-    config.init_state()
+    config.init_data()
     log = setup_logging("review")
     if args.command == "show":
         f = paths.memory_file()
