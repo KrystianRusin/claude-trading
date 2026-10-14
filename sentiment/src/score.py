@@ -7,7 +7,9 @@ Claude runs headless (`claude -p`) with no tools as a one-shot classifier. Its o
 schema-checked here; nothing it writes is executed. Score files are never edited once written.
 
 Only universe symbols with news in the window are scored (open positions first, then the most
-covered), in batches so one bad reply loses one batch rather than the day.
+covered), in batches so one bad reply loses one batch rather than the day. The trading desk
+(desk.py) then proposes trade ideas from the scores, headlines, price moves and pairs; its ideas
+are stored in the same score file under "desk".
 """
 import argparse
 import hashlib
@@ -190,14 +192,15 @@ def score_batch(model_input, prompt, caller, log=None):
     return None
 
 
-def score(now, universe, ucfg, priority=(), caller=call_claude, log=None, mem=None):
+def score(now, universe, ucfg, priority=(), caller=call_claude, log=None, mem=None, desk=None):
     """Score the news since the previous run in batches. Returns the score file path.
 
     `mem` is the lessons memory to append to the prompt; prompt_sha256 covers prompts/scoring.md and
     memory_sha256 the lessons, so results can be split by either.
 
     Symbols in a batch that fails twice are left out and listed in `failed_symbols`. Raises, writing
-    nothing, when every batch fails.
+    nothing, when every batch fails. `desk(scores, articles)` returns the desk record; its failure
+    is recorded and never stops the score file.
     """
     if paths.score_file(now.date()).exists():
         raise ScoringError(f"{paths.score_file(now.date())} already exists")
@@ -223,8 +226,32 @@ def score(now, universe, ucfg, priority=(), caller=call_claude, log=None, mem=No
             scores.update(result)
     if chosen and not scores:
         raise ScoringError(f"all {len(batches)} scoring batches failed twice, no score file written")
-    return write_scores(now.date(), record | {"input_articles": n_articles, "failed_symbols": failed,
-                                              "scores": scores})
+    record |= {"input_articles": n_articles, "failed_symbols": failed, "scores": scores}
+    if desk is not None:
+        try:
+            record["desk"] = desk(scores, articles)
+        except Exception as e:
+            if log:
+                log.warning("trading desk failed; scores only today", exc_info=True)
+            record["desk"] = {"ideas": [], "rejected": [], "error": f"{type(e).__name__}: {e}"}
+    return write_scores(now.date(), record)
+
+
+def desk_step(cfg, broker, symbols, holdings, now, log=None):
+    """The `desk` callable for score(): market moves and pair divergences up to the last close, then Claude."""
+    import desk as desk_
+    import pairs
+    from broker import load_bars
+
+    def run(scores, articles):
+        end = previous_weekday(now).date()
+        bars = load_bars(list(dict.fromkeys(symbols + ["SPY"])), end - timedelta(days=45), end, broker)
+        closes = {s: float(df["close"].iloc[-1]) for s, df in bars.items() if len(df)}
+        divs = pairs.divergences(pairs.load(), closes, cfg["pairs"])
+        model_input = desk_.build_input(now.date(), holdings, scores, articles, desk_.market_moves(bars), divs,
+                                        cfg["desk"]["max_ideas"], cfg["desk"]["max_headlines"])
+        return desk_.propose(model_input, divs, log=log)
+    return run
 
 
 def load_scores(day):
@@ -258,7 +285,9 @@ def main(argv=None):
         return 0
     cfg = config.load_config()
     symbols = universe.load(config.load_watchlist())
-    held = [r["symbol"] for r in Book(paths.book_dir("paper"), "paper").positions()]
+    holdings = Book(paths.book_dir("paper"), "paper").positions()
+    held = [r["symbol"] for r in holdings]
+    broker = None
     try:
         broker = make_broker(cfg, verify_account=False)
         log.info("news fetch before scoring: %d new articles", news.fetch(broker, symbols, now))
@@ -269,7 +298,8 @@ def main(argv=None):
         log.warning("news fetch or calendar check failed; scoring the archive as it is", exc_info=True)
     try:
         mem = memory.load() if cfg["memory"]["use_in_scoring"] else None
-        path = score(now, symbols, cfg["universe"], priority=held, log=log, mem=mem)
+        desk = desk_step(cfg, broker, symbols, holdings, now, log) if cfg["desk"]["enabled"] else None
+        path = score(now, symbols, cfg["universe"], priority=held, log=log, mem=mem, desk=desk)
     except Exception as e:
         log.exception("scoring failed")
         notify(f"scoring failed, no entries today: {e}")
@@ -278,6 +308,12 @@ def main(argv=None):
     nonzero = {s: v["score"] for s, v in record["scores"].items() if v["score"]}
     log.info("wrote %s: %d of %d symbols with news scored from %d articles, non-zero %s", path.name,
              len(record["scores"]), record["symbols_with_news"], record["input_articles"], nonzero)
+    d = record.get("desk") or {}
+    if d.get("error"):
+        notify(f"trading desk failed, scores only today: {d['error'][:200]}")
+    elif "ideas" in d:
+        log.info("desk: %d ideas %s", len(d["ideas"]),
+                 [f"{i['kind']} {'/'.join(leg['side'][0] + leg['symbol'] for leg in i['legs'])}" for i in d["ideas"]])
     if record["failed_symbols"]:
         log.warning("batches failed, not scored today: %s", ",".join(record["failed_symbols"]))
         notify(f"some scoring batches failed: {len(record['failed_symbols'])} symbols not scored")

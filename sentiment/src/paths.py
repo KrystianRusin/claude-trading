@@ -12,6 +12,7 @@ CONFIG_BOUNDS = ROOT / "defaults" / "config_bounds.json"
 WATCHLIST_DEFAULT = ROOT / "defaults" / "watchlist.json"
 SCORING_PROMPT = ROOT / "prompts" / "scoring.md"
 REVIEW_PROMPT = ROOT / "prompts" / "review.md"
+DESK_PROMPT = ROOT / "prompts" / "desk.md"
 BOOK_MODES = ("paper", "dry_run", "replay")
 
 
@@ -87,8 +88,8 @@ def lock_file():
     return data_dir() / "trader.lock"
 
 
-def comparison_file():
-    return data_dir() / "comparison.md"
+def pairs_file():
+    return data_dir() / "pairs.json"
 
 
 def book_dir(mode):
@@ -98,13 +99,22 @@ def book_dir(mode):
     return data_dir() / "books" / mode
 
 
-def reports_dir(mode):
-    return book_dir(mode) / "reports"
+def _report_root(mode):
+    """data/ for the paper book, so its reports sit at the top; the book's own folder otherwise."""
+    return data_dir() if mode == "paper" else book_dir(mode)
+
+
+def daily_dir(mode):
+    return _report_root(mode) / "daily"
+
+
+def daily_file(mode, day):
+    return daily_dir(mode) / f"{day.isoformat()}.md"
 
 
 def lifetime_file(mode):
-    return book_dir(mode) / "lifetime.md"
+    return _report_root(mode) / "lifetime.md"
 
 
 def lifetime_json(mode):
-    return book_dir(mode) / "lifetime.json"
+    return _report_root(mode) / "lifetime.json"

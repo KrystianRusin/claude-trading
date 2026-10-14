@@ -86,3 +86,18 @@ def test_data_dir_override(state):
     assert paths.book_dir("paper") == state / "books" / "paper"
     with pytest.raises(ValueError):
         paths.book_dir("live")
+
+
+def test_old_config_gets_new_sections_and_keeps_its_values(state):
+    cfg = json.loads(paths.config_file().read_text())
+    old = {k: v for k, v in cfg.items() if k not in ("desk", "pairs")} | {"version": 1}
+    old["risk"] = dict(old["risk"], max_positions=6)
+    del old["risk"]["max_net_exposure_pct"]
+    paths.config_file().write_text(json.dumps(old))
+    new = config.load_config()
+    assert new["desk"] == cfg["desk"] and new["pairs"] == cfg["pairs"]
+    assert new["risk"]["max_positions"] == 6 and new["risk"]["max_net_exposure_pct"] == cfg["risk"]["max_net_exposure_pct"]
+    assert new["version"] == cfg["version"] == json.loads(paths.config_file().read_text())["version"]
+    before = paths.config_file().stat().st_mtime_ns
+    config.load_config()
+    assert paths.config_file().stat().st_mtime_ns == before

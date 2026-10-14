@@ -42,10 +42,10 @@ sentiment-trader/
   README.md  requirements.txt  pytest.ini  .env.example
   src/                    # all Python modules, run as python src/<name>.py
     paths.py              # every data path in one place; DATA_DIR overridable for tests
-    broker.py  simbroker.py  news.py  universe.py  score.py  trader.py  risk.py
-    logger.py  analyze.py  lifetime.py  compare.py  memory.py  review.py  config.py
+    broker.py  simbroker.py  news.py  universe.py  pairs.py  score.py  desk.py  trader.py
+    risk.py  logger.py  analyze.py  lifetime.py  compare.py  memory.py  review.py  config.py
   prompts/
-    scoring.md  review.md # fixed instructions for Claude
+    scoring.md  desk.md  review.md   # fixed instructions for Claude
   defaults/
     config.json           # trading rules, copied to data/config.json on first setup
     watchlist.json        # ~20 symbols, copied to data/watchlist.json on first setup
@@ -57,13 +57,15 @@ sentiment-trader/
   docs/SPEC.md
   tests/
 data/                     # git-ignored
-  config.json  watchlist.json  universe.json  comparison.md  trader.lock
+  daily/<YYYY-MM-DD>.md   # one report per day
+  lifetime.md  lifetime.json
+  config.json  watchlist.json  universe.json  pairs.json  trader.lock
   news/<YYYY-MM-DD>.jsonl
-  scores/<YYYY-MM-DD>.json
+  scores/<YYYY-MM-DD>.json   # news scores and the desk's ideas
   bars/
   memory/  memory.md  memory.json  history/
-  books/<paper|dry_run|replay>/
-    trades.csv  orders.csv  positions.csv  daily_summary.csv  reports/  lifetime.md
+  books/paper/  trades.csv  orders.csv  positions.csv  daily_summary.csv
+  books/<dry_run|replay>/   # simulated books, with their own daily/ and lifetime.md
   logs/  cron.log  sentiment.log
   backups/                # nightly archives of data/
 ```
@@ -113,32 +115,55 @@ claude -p "$(cat prompts/scoring.md)" --model claude-haiku-5-5 --tools "" --outp
 Swapping the model later (for example a dedicated classification model such as TypeSafe's Jev)
 only changes the function that calls the model: input building and validation stay the same.
 
+## 4a. Pairs (`pairs.py`)
+
+- Built nightly after the universe from about a year of daily closes (`formation_days`, 250).
+- Candidate pairs: daily log returns correlated between `min_correlation` (0.7) and
+  `max_correlation` (0.97; above that they are share classes or near-identical funds).
+- Spread: log A - beta x log B, beta from a regression over the window. Kept when the spread
+  reverts with a half-life (from an AR(1) fit) between 1 and `max_half_life_days` (20) and beta is
+  between 0.2 and 5. Each stock is in at most one pair, most correlated first, up to `max_pairs`.
+- z-score: how many standard deviations today's spread is from its window average. A divergence
+  is `entry_z` (2) <= |z| < `stop_z` (4).
+
+## 4b. Trading desk (`desk.py`, `prompts/desk.md`)
+
+The desk makes the system behave like a retail swing trader rather than a pure news classifier.
+It runs inside `score.py run` after the scores and sends Claude (Sonnet, no tools):
+
+- the non-zero scores, the newest `max_headlines` (150) headlines with their symbols,
+- each universe stock's and SPY's return over the last 1, 5 and 20 sessions,
+- the pair divergences (pairs touching a held stock are left out), and the current holdings.
+
+Claude replies with up to `max_ideas` (8) ideas: kind (`theme`, `pair`, `momentum`, `reversal`,
+`sector`, `news`), legs, conviction (1 or 2), confidence, reason and evidence (headline ids,
+`score:SYM`, `move:SYM`, `pair:A/B`). Python drops, one by one, ideas that break a rule: unknown
+kind, a stock outside the input or already held, uncited or invented evidence, a pair idea that is
+not short the rich leg and long the cheap leg of a cited pair, or the wrong number of legs. An
+unusable reply is retried once; a second failure records the error and the day trades scores only.
+The ideas are stored in the score file under `desk` with the model and prompt hash.
+
 ## 5. Trading rules (`trader.py`)
 
-Defined by `data/config.json`. Starting values:
-
-```json
-{
-  "version": 1,
-  "entry": {"min_score": 2, "min_confidence_at_score_1": 0.7, "allow_score_1": true,
-            "allow_shorts": true, "run_time": "09:45"},
-  "exit": {"max_hold_days": 5, "exit_on_score_flip": true,
-           "stop_atr_multiple": 2.0, "atr_days": 14},
-  "risk": {"position_pct_of_equity": 5, "max_positions": 10, "max_gross_exposure_pct": 60,
-           "max_net_exposure_pct": 40, "max_daily_loss_pct": 2.0},
-  "data_feed": "iex",
-  "timezone": "America/New_York"
-}
-```
+Defined by `data/config.json`, copied from `defaults/config.json` and validated against
+`defaults/config_bounds.json`. Keys added by a newer version are filled in from the defaults at
+load time, keeping the user's values, and raise `version`.
 
 Each weekday:
 
 1. **09:45 run** (`python trader.py run`):
    - Exits first: close positions that reached `max_hold_days` trading days, or whose new score has
      the opposite sign (when `exit_on_score_flip`).
-   - Entries: long when score is +2, or +1 with confidence >= 0.7 (when `allow_score_1`); short
-     mirrored for -2/-1. Skip symbols already held, hard-to-borrow shorts, and anything that would
-     break a book limit. Rank candidates by |score| then confidence; fill up to `max_positions`.
+   - Pairs exit first by z-score with live prices: back within `exit_z` (`converged`), past
+     `stop_z` (`diverged`), after `pairs.max_hold_days` (`time`), or the lone leg of a pair whose
+     other leg was stopped out (`pair_leg`).
+   - Entries: one shared pool of candidates from the news scores (strategy `sentiment_swing`) and
+     the desk's ideas (strategy = the idea's kind). Long when score is +2, or +1 with confidence
+     >= 0.7 (when `allow_score_1`); short mirrored for -2/-1; desk ideas use conviction in place of
+     |score|. Skip symbols already held, hard-to-borrow shorts, and anything that would break a
+     book limit. Rank by conviction then confidence, news scores first on ties; fill up to
+     `max_positions`. A pair enters both legs or neither, each leg sized like a single position
+     with a `pairs.stop_atr_multiple` (3) x ATR stop.
    - Size: `position_pct_of_equity` of equity, rounded down to whole shares, skipped if zero.
    - Entry: market order with a protective stop at `stop_atr_multiple` x 14-day ATR from the
      reference price, sent as one OTO order (entry triggers the stop), stop TIF GTC so it survives
@@ -189,14 +214,19 @@ trade row records.
 
 ## 9. Analytics and comparison
 
-`analyze.py` (report to `<book>/reports/report_<date>.md`):
+Two files hold everything: `data/daily/<date>.md` (written by `analyze.py` at 18:30: equity and
+P&L, closed trades, holdings, entries, the desk's ideas with reasons and whether they were entered,
+scores, skips and warnings) and `data/lifetime.md` (written by `lifetime.py`: the sections below
+for all time, plus the comparison).
+
+`analyze.py --report` prints a performance report over a selection of closed trades:
 - Trades, win rate, average win and loss, expectancy per trade with a 95% range grouped by entry
   date, profit factor, total return, max drawdown, worst day.
-- Breakdowns by score bucket (-2, -1, +1, +2), confidence band, side, exit reason, symbol and
-  `prompt_sha256`. The key question is whether higher scores really lead to better returns.
+- Breakdowns by strategy, score bucket (-2, -1, +1, +2), confidence band, side, exit reason,
+  symbol and `prompt_sha256`. The key question is whether higher scores really lead to better returns.
 - SPY buy-and-hold over the same period; sample-size warning under 30 trades.
 
-`compare.py` (nightly, `data/comparison.md`): reads this repo's state and the paper-trader's
+`compare.py` (a section of `data/lifetime.md`): reads this repo's state and the paper-trader's
 (`PAPER_TRADER_STATE` in `.env`, read-only, optional):
 - Overlapping period only. Per book: total return, annualised volatility, Sharpe ratio, max
   drawdown, worst day, trades, days.

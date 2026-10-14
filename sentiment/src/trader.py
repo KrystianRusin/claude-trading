@@ -1,4 +1,4 @@
-"""Once-a-day trader: entries and exits on today's scores, the end-of-day reconcile, and replays.
+"""Once-a-day trader: entries and exits on today's scores and desk ideas, the end-of-day reconcile, and replays.
 
     python src/trader.py run [--dry-run] [--force]      09:45: exits, then entries
     python src/trader.py close [--dry-run] [--force]    16:15: fills, stop-outs, marks, daily summary
@@ -13,11 +13,12 @@ import json
 import sys
 from datetime import date, datetime, time, timedelta
 
+import pairs
 import paths
 import risk
 import score
 from broker import ET, DuplicateOrderError, OTOUnavailableError, load_bars
-from logger import Book, notify, setup_logging, trade_row
+from logger import STRATEGY, Book, notify, setup_logging, trade_row
 
 FETCH_DAYS = 45
 
@@ -56,44 +57,85 @@ def exit_reason(row, scores, held, exit_cfg):
     return None
 
 
-def rank_candidates(scores, entry_cfg, skip):
-    """[(symbol, side, score, confidence)] ranked by |score| then confidence, skipping `skip` symbols."""
+def candidates(record, entry_cfg):
+    """Entry candidates from a score file: one per tradable news score and one per desk idea.
+
+    Desk ideas pass the same thresholds as scores, with conviction in place of |score|.
+    """
     out = []
-    for sym, entry in scores.items():
+    for sym, entry in record["scores"].items():
         side = signal(entry, entry_cfg)
-        if side and sym not in skip:
-            out.append((sym, side, entry["score"], entry["confidence"]))
-    return sorted(out, key=lambda c: (-abs(c[2]), -c[3], c[0]))
-
-
-def plan_entries(candidates, *, prices, atrs, flags, equity, book_values, orders_today, cfg):
-    """(plans, skips) for ranked candidates within sizing, stop and book limits."""
-    plans, skips = [], []
-    values = list(book_values)
-    for sym, side, s, conf in candidates:
-        price, a = prices.get(sym), atrs.get(sym)
-        if orders_today + len(plans) >= risk.MAX_ORDERS_PER_DAY:
-            reason = "order_cap"
-        elif price is None:
-            reason = "no_price"
-        elif price < risk.MIN_PRICE:
-            reason = "price_under_min"
-        elif not flags[sym][0]:
-            reason = "not_tradable"
-        elif side == "short" and not risk.can_short(flags[sym]):
-            reason = "not_easy_to_borrow"
-        elif a is None:
-            reason = "no_atr"
-        else:
-            qty = risk.position_qty(equity, price, cfg["risk"]["position_pct_of_equity"])
-            value = qty * price * (1 if side == "long" else -1)
-            reason = "size_zero" if qty == 0 else risk.fits_book(values, value, equity, cfg["risk"])
-        if reason:
-            skips.append((sym, reason))
+        if side:
+            out.append({"strategy": STRATEGY, "legs": [(sym, side)], "conviction": abs(entry["score"]),
+                        "confidence": entry["confidence"],
+                        "reason": f"score {entry['score']:+d} conf {entry['confidence']}"})
+    for idea in (record.get("desk") or {}).get("ideas", []):
+        legs = [(leg["symbol"], leg["side"]) for leg in idea["legs"]]
+        if signal({"score": idea["conviction"], "confidence": idea["confidence"]}, entry_cfg) is None:
             continue
-        values.append(value)
-        plans.append({"symbol": sym, "side": side, "qty": qty, "price": price, "score": s, "confidence": conf,
-                      "stop_price": risk.stop_price(side, price, a, cfg["exit"]["stop_atr_multiple"])})
+        if any(side == "short" for _, side in legs) and not entry_cfg["allow_shorts"]:
+            continue
+        out.append({"strategy": idea["kind"], "legs": legs, "conviction": idea["conviction"],
+                    "confidence": idea["confidence"], "reason": f"{idea['kind']}: {idea['reason']}",
+                    "pair": idea.get("pair")})
+    return out
+
+
+def rank_candidates(cands, skip):
+    """Candidates touching no `skip` symbol, by conviction then confidence; news scores win ties."""
+    keep = [c for c in cands if not any(sym in skip for sym, _ in c["legs"])]
+    return sorted(keep, key=lambda c: (-c["conviction"], -c["confidence"], c["strategy"] != STRATEGY,
+                                       c["legs"][0][0]))
+
+
+def _leg_problem(sym, side, price, atr_value, flags):
+    if price is None:
+        return "no_price"
+    if price < risk.MIN_PRICE:
+        return "price_under_min"
+    if not flags[sym][0]:
+        return "not_tradable"
+    if side == "short" and not risk.can_short(flags[sym]):
+        return "not_easy_to_borrow"
+    if atr_value is None:
+        return "no_atr"
+    return None
+
+
+def plan_entries(cands, *, prices, atrs, flags, equity, book_values, orders_today, cfg):
+    """(plans, skips): one plan per leg of each ranked candidate that fits sizing, stop and book limits.
+
+    A candidate enters all its legs or none; the skip names the leg that failed.
+    """
+    plans, skips = [], []
+    values, taken = list(book_values), set()
+    for c in cands:
+        legs, added = [], []
+        multiple = cfg["pairs"]["stop_atr_multiple"] if c["strategy"] == "pair" else cfg["exit"]["stop_atr_multiple"]
+        for sym, side in c["legs"]:
+            price, a = prices.get(sym), atrs.get(sym)
+            if sym in taken:
+                reason = "duplicate"
+            elif orders_today + len(plans) + len(legs) >= risk.MAX_ORDERS_PER_DAY:
+                reason = "order_cap"
+            else:
+                reason = _leg_problem(sym, side, price, a, flags)
+            if not reason:
+                qty = risk.position_qty(equity, price, cfg["risk"]["position_pct_of_equity"])
+                value = qty * price * (1 if side == "long" else -1)
+                reason = "size_zero" if qty == 0 else risk.fits_book(values + added, value, equity, cfg["risk"])
+            if reason:
+                skips.append((sym, reason))
+                break
+            added.append(value)
+            legs.append({"symbol": sym, "side": side, "qty": qty, "price": price,
+                         "score": c["conviction"] * (1 if side == "long" else -1), "confidence": c["confidence"],
+                         "stop_price": risk.stop_price(side, price, a, multiple), "strategy": c["strategy"],
+                         "reason": c["reason"], "pair": c.get("pair")})
+        else:
+            values += added
+            plans += legs
+            taken |= {leg["symbol"] for leg in legs}
     return plans, skips
 
 
@@ -297,15 +339,18 @@ class Trader:
             self.log.warning("%s OTO entry rejected (%s); market entry with a separate stop", sym, e)
             o = self.broker.submit_market_order(sym, "buy" if plan["side"] == "long" else "sell", plan["qty"], cid)
             fallback = True
-        self.order_event("submit", o, reason=f"score {plan['score']} conf {plan['confidence']}", price=plan["price"])
-        self.log.info("entry %s %s %d at ~%.2f, stop %.2f (score %+d, confidence %.2f)", sym, plan["side"],
-                      plan["qty"], plan["price"], plan["stop_price"], plan["score"], plan["confidence"])
+        self.order_event("submit", o, reason=plan["reason"][:200], price=plan["price"])
+        self.log.info("entry %s %s %d at ~%.2f, stop %.2f (%s)", sym, plan["side"], plan["qty"], plan["price"],
+                      plan["stop_price"], plan["reason"][:120])
+        p = plan.get("pair") or {}
         row = {"symbol": sym, "side": plan["side"], "qty": plan["qty"], "status": "pending",
                "entry_date": self.today.isoformat(), "entry_price": plan["price"], "entry_order_id": o.id,
                "stop_order_id": o.legs[0].id if o.legs else "", "stop_price": plan["stop_price"],
                "score": plan["score"], "confidence": plan["confidence"], "score_date": record["date"],
                "config_version": self.cfg["version"], "prompt_sha256": record["prompt_sha256"],
-               "memory_sha256": record.get("memory_sha256", "")}
+               "memory_sha256": record.get("memory_sha256", ""), "strategy": plan["strategy"],
+               "reason": plan["reason"][:300], "pair": p.get("pair", ""), "pair_beta": p.get("beta", ""),
+               "pair_mean": p.get("mean", ""), "pair_std": p.get("std", "")}
         self.rows.append(row)
         self.book.save_positions(self.rows)
         if fallback:
@@ -349,10 +394,13 @@ class Trader:
             self.log.warning("no valid score file for %s: exits only", self.today)
         exited = set()
         for row in list(self.rows):
+            if row.get("strategy") == "pair":
+                continue
             held = hold_days(date.fromisoformat(row["entry_date"]), self.today, self.calendar())
             reason = exit_reason(row, scores, held, self.cfg["exit"])
             if reason and self.exit_position(row, reason):
                 exited.add(row["symbol"])
+        exited |= self._pair_exits()
         if record is None:
             return
         if self.book.state().get("entries_blocked_on") == self.today.isoformat():
@@ -360,10 +408,10 @@ class Trader:
             return
         positions = self.broker.list_positions()
         held = {r["symbol"] for r in self.rows} | set(positions) | exited
-        candidates = rank_candidates(scores, self.cfg["entry"], held)
-        if not candidates:
+        cands = rank_candidates(candidates(record, self.cfg["entry"]), held)
+        if not cands:
             return
-        syms = [c[0] for c in candidates]
+        syms = sorted({sym for c in cands for sym, _ in c["legs"]})
         prices = self.broker.latest_prices(syms)
         bars = self._bars(syms)
         atrs = {s: risk.atr(bars.get(s), self.cfg["exit"]["atr_days"]) for s in syms}
@@ -372,7 +420,7 @@ class Trader:
         values += [float(r["qty"]) * float(r["entry_price"]) * (1 if r["side"] == "long" else -1)
                    for r in self.rows if r["symbol"] not in positions and r["status"] == "pending"]
         submits = sum(1 for e in self.book.order_events(self.today) if e["event"] == "submit")
-        plans, skips = plan_entries(candidates, prices=prices, atrs=atrs, flags=flags, equity=acct.equity,
+        plans, skips = plan_entries(cands, prices=prices, atrs=atrs, flags=flags, equity=acct.equity,
                                     book_values=values, orders_today=submits, cfg=self.cfg)
         for sym, why in skips:
             self.event("skip", sym, reason=why)
@@ -380,6 +428,38 @@ class Trader:
             self.log.info("skipped: %s", ", ".join(f"{sym} ({why})" for sym, why in skips))
         for plan in plans:
             self.enter(plan, record)
+
+    def _pair_exits(self):
+        """Exit pairs whose gap closed, widened past stop_z or ran out of time, and lone legs of broken pairs."""
+        pcfg = self.cfg["pairs"]
+        groups = {}
+        for row in self.rows:
+            if row.get("strategy") == "pair" and row.get("pair"):
+                groups.setdefault(row["pair"], []).append(row)
+        open_legs = sorted({r["symbol"] for g in groups.values() for r in g if r["status"] == "open"})
+        prices = self.broker.latest_prices(open_legs) if open_legs else {}
+        exited = set()
+        for pair_id, legs in groups.items():
+            if any(r["status"] != "open" for r in legs):
+                continue
+            reason = "pair_leg" if len(legs) == 1 else self._pair_exit_reason(pair_id, legs, prices, pcfg)
+            if reason:
+                exited |= {r["symbol"] for r in legs if self.exit_position(r, reason)}
+        return exited
+
+    def _pair_exit_reason(self, pair_id, legs, prices, pcfg):
+        a, b = pair_id.split("/")
+        by = {r["symbol"]: r for r in legs}
+        if a in by and b in by and prices.get(a) and prices.get(b):
+            r = by[a]
+            z = pairs.zscore(r["pair_beta"], r["pair_mean"], r["pair_std"], prices[a], prices[b])
+            toward_entry = z if r["side"] == "short" else -z
+            if toward_entry <= pcfg["exit_z"]:
+                return "converged"
+            if toward_entry >= pcfg["stop_z"]:
+                return "diverged"
+        held = hold_days(date.fromisoformat(legs[0]["entry_date"]), self.today, self.calendar())
+        return "time" if held >= pcfg["max_hold_days"] else None
 
     def close(self, force=False):
         if not force and self.today not in self.calendar():

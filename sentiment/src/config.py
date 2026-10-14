@@ -11,6 +11,7 @@ import paths
 
 SYMBOL_RE = re.compile(r"^[A-Z][A-Z.]{0,5}$")
 TIME_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+RETIRED_KEYS = ("mode",)
 
 
 class ConfigError(RuntimeError):
@@ -26,7 +27,7 @@ def init_data():
     """Create the data folder and copy missing defaults into it. Never overwrites. Returns what it created."""
     created = []
     dirs = [paths.data_dir(), paths.news_dir(), paths.scores_dir(), paths.memory_dir(), paths.logs_dir()]
-    for d in dirs + [paths.reports_dir("paper")]:
+    for d in dirs + [paths.daily_dir("paper")]:
         if not d.exists():
             d.mkdir(parents=True)
             created.append(str(d))
@@ -81,13 +82,29 @@ def validate(cfg, bounds):
     return errors
 
 
-def _drop_retired_keys(path, cfg):
-    """Remove keys that no longer exist (`mode`) from a config file, so old configs still load."""
-    if "mode" not in cfg:
-        return cfg
-    cfg = {k: v for k, v in cfg.items() if k != "mode"}
-    path.write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
-    return cfg
+def _with_defaults(cfg, default):
+    """`cfg` with every key missing from it taken from `default`; existing values are kept."""
+    out = dict(cfg)
+    for k, v in default.items():
+        if k not in out:
+            out[k] = v
+        elif isinstance(v, dict) and isinstance(out[k], dict):
+            out[k] = _with_defaults(out[k], v)
+    return out
+
+
+def upgrade(path, cfg):
+    """Bring an older config file up to date: drop removed keys and add new ones from the defaults.
+
+    New keys mean new rules, so the version is raised to the default's. Rewrites the file only when it changed.
+    """
+    default = load_json(paths.CONFIG_DEFAULT)
+    new = _with_defaults({k: v for k, v in cfg.items() if k not in RETIRED_KEYS}, default)
+    if set(_flatten(new)) - set(_flatten(cfg)):
+        new["version"] = max(cfg.get("version", 1), default["version"])
+    if new != cfg:
+        path.write_text(json.dumps(new, indent=2) + "\n", encoding="utf-8")
+    return new
 
 
 def load_config(path=None):
@@ -95,7 +112,7 @@ def load_config(path=None):
     path = path or paths.config_file()
     if not path.exists():
         raise ConfigError(f"{path} not found; run `python src/config.py` or scripts/setup.sh")
-    cfg = _drop_retired_keys(path, load_json(path))
+    cfg = upgrade(path, load_json(path))
     errors = validate(cfg, load_json(paths.CONFIG_BOUNDS))
     if errors:
         raise ConfigError(f"{path} is out of bounds: " + "; ".join(errors))

@@ -222,3 +222,56 @@ def test_job_lock_is_exclusive(state):
         with pytest.raises(RuntimeError, match="another trader job"):
             with trader.job_lock(paths.lock_file()):
                 pass
+
+
+def write_pair_idea(day, z_mean=-0.025):
+    """A desk pair idea shorting KO and buying PEP, with spread stats that put today's z at +2.5 on flat prices."""
+    pair = {"pair": "KO/PEP", "a": "KO", "b": "PEP", "beta": 1.0, "mean": z_mean, "std": 0.01, "z": 2.5}
+    idea = {"kind": "pair", "legs": [{"symbol": "KO", "side": "short"}, {"symbol": "PEP", "side": "long"}],
+            "conviction": 2, "confidence": 0.8, "reason": "gap with no news", "evidence": ["pair:KO/PEP"],
+            "pair": pair}
+    paths.score_file(day).write_text(json.dumps({"date": day.isoformat(), "prompt_sha256": "abc", "model": "m",
+                                                 "scores": {}, "desk": {"ideas": [idea]}}))
+
+
+@pytest.fixture
+def pair_env(state):
+    return Env(symbols=("KO", "PEP"))
+
+
+def test_pair_enters_both_legs_and_exits_when_the_gap_closes(pair_env):
+    env = pair_env
+    write_pair_idea(D0)
+    env.day(D0)
+    rows = env.rows()
+    assert {s: r["side"] for s, r in rows.items()} == {"KO": "short", "PEP": "long"}
+    assert {r["strategy"] for r in rows.values()} == {"pair"} and rows["KO"]["pair"] == "KO/PEP"
+    assert float(rows["KO"]["stop_price"]) == 106.0  # 3 x ATR of 2
+    env.day(DAYS[41])
+    assert len(env.rows()) == 2  # still z 2.5
+    env.bars["KO"].loc[DAYS[42]:, ["open", "high", "low", "close"]] = 100 * 0.977
+    env.day(DAYS[42])
+    trades = env.book.trades()
+    assert env.rows() == {} and {t["exit_reason"] for t in trades} == {"converged"}
+    assert {t["strategy"] for t in trades} == {"pair"} and {t["pair"] for t in trades} == {"KO/PEP"}
+
+
+def test_pair_leg_stopped_out_closes_the_other_leg(pair_env):
+    env = pair_env
+    write_pair_idea(D0)
+    env.day(D0)
+    env.bars["KO"].loc[DAYS[41], "high"] = 110.0
+    env.day(DAYS[41])
+    assert [t["exit_reason"] for t in env.book.trades()] == ["sl"]
+    env.day(DAYS[42])
+    assert env.rows() == {} and [t["exit_reason"] for t in env.book.trades()] == ["sl", "pair_leg"]
+
+
+def test_pair_exits_after_its_max_hold_days(pair_env):
+    env = pair_env
+    write_pair_idea(D0)
+    for d in DAYS[40:50]:
+        env.day(d)
+    assert len(env.rows()) == 2
+    env.day(DAYS[50])
+    assert env.rows() == {} and {t["exit_reason"] for t in env.book.trades()} == {"time"}

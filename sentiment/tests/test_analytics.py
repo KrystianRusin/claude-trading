@@ -137,7 +137,7 @@ def test_day_report(state):
     scores = {"input_articles": 12, "scores": {"NKE": {"score": 2, "confidence": 0.9, "reason": "beat"},
                                                "F": {"score": 0, "confidence": 0.9, "reason": "none"}}}
     text = analyze.build_day_report(d, DAYS[2], "SPY +0.10%", scores)
-    assert text.startswith("# Day report 2026-10-07")
+    assert text.startswith("# 2026-10-07")
     assert "- Equity 100000.0 -> 100050.0, halted: False" in text
     assert "- Day P&L 50.0 (0.05%): closed trades 40.0, open positions' unrealized 10.0" in text
     assert "| AAPL | long | 10 | 2026-10-05 09:45 @ 100.0 | 09:45 @ 104.0 | time | 40.0 | 1.0 | 2 | 2 |" in text

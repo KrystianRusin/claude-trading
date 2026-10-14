@@ -18,13 +18,14 @@ TRADE_FIELDS = ["date", "symbol", "side", "qty", "entry_time", "entry_price", "e
                 "exit_reason", "pnl_usd", "pnl_r", "range_pct", "entry_minute_after_open", "config_version",
                 "strategy", "strategy_version",
                 "entry_date", "exit_date", "pnl_pct", "hold_days", "stop_price", "score", "confidence", "score_date",
-                "prompt_sha256", "memory_sha256", "held_over_earnings"]
-EXIT_REASONS = ("sl", "time", "flip", "halt", "loss_limit", "unknown")
+                "prompt_sha256", "memory_sha256", "held_over_earnings", "pair"]
+EXIT_REASONS = ("sl", "time", "flip", "converged", "diverged", "pair_leg", "halt", "loss_limit", "unknown")
 ORDER_FIELDS = ["timestamp", "date", "mode", "event", "symbol", "side", "qty", "order_type", "price",
                 "stop_price", "order_id", "client_order_id", "status", "reason"]
 POSITION_FIELDS = ["symbol", "side", "qty", "status", "entry_date", "entry_time", "entry_price", "entry_order_id",
                    "stop_order_id", "stop_price", "score", "confidence", "score_date", "config_version",
-                   "prompt_sha256", "memory_sha256", "exit_reason", "exit_order_id", "last_price", "unrealized_pnl"]
+                   "prompt_sha256", "memory_sha256", "exit_reason", "exit_order_id", "last_price", "unrealized_pnl",
+                   "strategy", "reason", "pair", "pair_beta", "pair_mean", "pair_std"]
 SUMMARY_FIELDS = ["date", "trades", "wins", "losses", "gross_pnl", "equity_start", "equity_end", "halted", "notes",
                   "day_pnl", "day_return_pct", "unrealized_pnl", "positions", "gross_exposure", "net_exposure",
                   "entries", "scored"]
@@ -57,14 +58,14 @@ def trade_row(position, exit_time, exit_price, exit_reason, hold_days):
         "pnl_usd": round(per_share * qty, 2) if priced else "",
         "pnl_r": round(per_share / risk, 4) if priced and risk > 0 else "",
         "range_pct": "", "entry_minute_after_open": minute,
-        "config_version": position.get("config_version", ""), "strategy": STRATEGY,
+        "config_version": position.get("config_version", ""), "strategy": position.get("strategy") or STRATEGY,
         "strategy_version": STRATEGY_VERSION,
         "entry_date": position["entry_date"], "exit_date": exit_time.date().isoformat(),
         "pnl_pct": round(100 * per_share / entry, 4) if priced else "", "hold_days": hold_days,
         "stop_price": stop if stop is not None else "", "score": position.get("score", ""),
         "confidence": position.get("confidence", ""), "score_date": position.get("score_date", ""),
         "prompt_sha256": position.get("prompt_sha256", ""), "memory_sha256": position.get("memory_sha256", ""),
-        "held_over_earnings": "",
+        "held_over_earnings": "", "pair": position.get("pair", ""),
     }
 
 

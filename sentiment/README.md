@@ -1,39 +1,69 @@
 # Sentiment Swing Trader
 
-A paper trading system that archives company news, has Claude score the news of the most liquid
-US stocks from -2 to +2 every morning, and trades those scores with fixed rules, holding positions for days.
-It runs under cron on a Raspberry Pi next to the paper-trader, on its own Alpaca paper account, so
-the two books can be compared over the same period.
+A paper trading system that trades like a retail swing trader. Every morning Claude scores the
+news of the most liquid US stocks, then a "trading desk" step has Claude read the whole day (news,
+price moves, stocks that usually move together but have drifted apart) and propose a few trade
+ideas. Fixed rules size, stop and exit every trade, holding positions for days. It runs under cron
+on a Raspberry Pi next to the paper-trader, on its own Alpaca paper account, so the two books can
+be compared over the same period.
 
 The design is in [docs/SPEC.md](docs/SPEC.md).
 
 **Not financial advice.** This is an experiment. Paper fills are optimistic, paper shorts have no
 real borrow costs, and results over a short window are not evidence of skill.
 
+## Where to look
+
+| File | What |
+|---|---|
+| `data/daily/<date>.md` | Everything about one day: equity and P&L, closed trades, holdings at the close, entries, the desk's ideas with their reasoning, news scores, skipped entries, warnings |
+| `data/lifetime.md` | Everything since the start: totals, by strategy, month, ticker, score and exit reason, current holdings, score calibration, and the comparison with the paper-trader |
+
+Both are rewritten at 18:30 each weekday. For live holdings at any time:
+
+```bash
+.venv/bin/python src/trader.py positions
+```
+
 ## How it works
 
 1. `universe.py` screens every stock listed on NYSE, NASDAQ and NYSE American each night and
    keeps the 400 with the highest average dollar volume over 20 days, priced at $5 or more, in
-   `data/universe.json`. The watchlist is always included.
-2. `news.py` archives Alpaca News API articles for the universe into `data/news/<date>.jsonl`.
-3. `score.py` picks the universe stocks with news since the previous scoring run (open positions
-   first, then the most covered, at most 60) and sends their news to headless Claude Code
-   (`claude -p`, Haiku, no tools) in batches of 20, with the fixed instructions in
-   `prompts/scoring.md`. Python checks each reply against a strict schema and writes
-   `data/scores/<date>.json`. Score files are never edited. A batch whose reply is invalid twice
-   is left out and listed in `failed_symbols`; if every batch fails, nothing is written and the
-   trader makes no entries that day.
-4. `trader.py run` (09:45) exits positions held `max_hold_days` trading days or whose score flipped
-   sign, then enters longs on +2 (or +1 with confidence >= 0.7) and shorts on -2/-1, sized at 5% of
-   equity, each with a GTC stop at 2 x the 14-day ATR.
-5. `trader.py close` (16:15) records fills and stop-outs, marks positions to market, checks the
-   daily loss limit and writes the daily summary.
-6. `analyze.py`, `lifetime.py` and `compare.py` (18:30) write the day report, the performance
-   report, the lifetime statistics and the comparison with the paper-trader.
-7. `review.py` (Fridays 19:45) gives Claude the week's evidence and has it update its lessons
-   memory, which the next scoring runs read.
+   `data/universe.json`. The watchlist is always included. It then runs `pairs.py build`.
+2. `pairs.py` looks through the universe for pairs of stocks that move together: daily returns
+   correlated between 0.7 and 0.97 over the last year, and a price gap that reverts with a
+   half-life of at most 20 days. Each stock is in at most one pair. Written to `data/pairs.json`.
+3. `news.py` archives Alpaca News API articles for the universe into `data/news/<date>.jsonl`.
+4. `score.py` (06:30) picks the universe stocks with news since the previous run (open positions
+   first, then the most covered, at most 60) and has headless Claude Code (`claude -p`, Haiku, no
+   tools) score each from -2 to +2 with `prompts/scoring.md`. Python checks each reply against a
+   strict schema and writes `data/scores/<date>.json`.
+5. In the same run, `desk.py` sends Claude (Sonnet, no tools) the non-zero scores, the newest 150
+   headlines, every stock's 1, 5 and 20-day returns, the pairs whose gap is 2 or more standard
+   deviations from normal, and the current holdings, with `prompts/desk.md`. Claude replies with up
+   to 8 ideas, each of one kind:
+   - `theme`: a second-order effect (data centres need power, so power producers may rise).
+   - `pair`: short the stock that ran ahead of its partner and buy the one that fell behind.
+   - `momentum`, `reversal`, `sector`, `news`: a move likely to continue, a move with no news
+     likely to retrace, an industry moving together, or news the scores underrated.
 
-Claude never places orders, edits code or config, or writes files. It only prints scores.
+   Every idea cites its evidence (headline ids, scores, price moves or pairs). Python drops any idea
+   that cites something not in the input, trades a stock outside the universe or already held, or
+   gets a pair's sides wrong. The ideas are saved in the score file.
+6. `trader.py run` (09:45) exits positions, then enters candidates from both the scores and the
+   desk, one shared pool ranked by conviction (|score|) then confidence. Each needs |score| 2, or 1
+   with confidence of at least 0.7. Each position is 5% of equity with a GTC stop at 2 x the
+   14-day ATR (3 x for pair legs). A pair enters both legs or neither.
+7. Exits: news and desk positions after `max_hold_days` (5) or when their score flips sign. Pairs
+   when the gap is back within 0.5 standard deviations (`converged`), widens past 4 (`diverged`),
+   after 10 days (`time`), or when one leg is stopped out (`pair_leg`).
+8. `trader.py close` (16:15) records fills and stop-outs, marks positions to market, checks the
+   daily loss limit and writes the daily summary.
+9. `analyze.py` and `lifetime.py` (18:30) write the daily file and the lifetime file.
+10. `review.py` (Fridays 19:45) gives Claude the week's evidence and has it update its lessons
+    memory, which the next scoring runs read.
+
+Claude never places orders, edits code or config, or writes files. It only prints scores and ideas.
 
 Scores are judged only on news that arrived after the system started: Claude's training data
 already contains what happened after older news, so replays never ask it to score past news.
@@ -51,8 +81,8 @@ scripts/setup.sh
 ```
 
 It installs packages and the virtual environment, asks for the new account's keys and the path to
-the paper-trader repo, stores a Claude token (or reuses the paper-trader's),
-creates `data/`, runs the tests and an Alpaca check, and installs the cron jobs. Re-running it is safe.
+the paper-trader repo, stores a Claude token (or reuses the paper-trader's), creates `data/`, runs
+the tests and an Alpaca check, and installs the cron jobs. Re-running it is safe.
 
 Credentials live only in `.env` (mode 600) and `~/.config/sentiment-trader/env`; they are never
 logged or printed.
@@ -63,88 +93,74 @@ logged or printed.
 |---|---|
 | Every 30 min, 07:00-20:00 weekdays | `news.py fetch` |
 | 10:00 and 18:00 weekends | `news.py fetch` |
-| 06:30 weekdays | `score.py run` (fetches news first; skips market holidays) |
+| 06:30 weekdays | `score.py run`: news scores, then the desk's ideas (skips market holidays) |
 | 09:45 weekdays | `trader.py run` |
 | 16:15 weekdays | `trader.py close` |
 | 18:30 weekdays | `analyze.py`, `lifetime.py`, `compare.py` |
-| 19:15 weekdays | `universe.py build` |
+| 19:15 weekdays | `universe.py build`, then the pairs |
 | 19:45 Fridays | `review.py run` |
 | 03:00 daily | `scripts/backup.sh` |
 
 The times avoid the paper-trader's 09:00 start and 17:00 review.
 
-## Running
-
-The cron jobs trade the paper account; the book is `data/books/paper/`.
-
-`trader.py run` and `close` do nothing on market holidays and weekends; `--force` runs them anyway.
-`close` logs the path of the daily summary it wrote.
-
-`--dry-run` on any `trader.py` command uses simulated fills and a separate book in
-`data/books/dry_run/` instead, for trying changes without placing orders.
+The cron jobs trade the paper account. `trader.py run` and `close` do nothing on market holidays
+and weekends; `--force` runs them anyway. `--dry-run` on any `trader.py` command uses simulated
+fills and a separate book in `data/books/dry_run/` instead, for trying changes without placing
+orders.
 
 ## Commands
-
-```bash
-.venv/bin/python src/news.py status
-```
 
 ```bash
 .venv/bin/python src/score.py show 2026-10-13
 ```
 
 ```bash
-.venv/bin/python src/trader.py replay --from 2026-10-01 --to 2026-10-31
-```
-
-```bash
-.venv/bin/python src/trader.py positions
+.venv/bin/python src/pairs.py show
 ```
 
 ```bash
 .venv/bin/python src/analyze.py --day 2026-10-13
 ```
 
-- `universe.py build | show`: rebuild the universe, or print it. Its limits are the `universe`
-  section of `data/config.json`.
+```bash
+.venv/bin/python src/trader.py replay --from 2026-10-01 --to 2026-10-31
+```
+
+- `universe.py build | show`: rebuild the universe and pairs, or print the universe.
+- `pairs.py build | show`: rebuild the pairs, or print them with today's z-scores.
 - `news.py fetch | status`: archive news, or show articles per day and the most covered symbols.
-- `score.py run | show [DATE]`: score today's news, or print a score file.
+- `score.py run | show [DATE]`: score today's news and run the desk, or print a score file.
 - `trader.py run | close [--dry-run] [--force]`: `--force` ignores the calendar and run time.
 - `trader.py positions [--dry-run]`: current holdings at live prices, with today's entries and
   closed trades. Read-only, safe at any time.
 - `trader.py replay --from DATE --to DATE`: reruns the rules over saved score files and daily bars
   into `data/books/replay/`, with simulated fills at the open and stops checked against daily bars.
-- `analyze.py [--book ...] [--since DATE] [--config-version N] [--no-baseline]`: writes the
-  performance report and today's day report into `<book>/reports/`. `--day DATE` writes only that
-  day's report.
-- `lifetime.py [--book ...] [--no-baseline]`: rewrites `<book>/lifetime.md` and `lifetime.json`.
+- `analyze.py [--day DATE]`: write the daily file. `--report [--since DATE] [--config-version N]`
+  prints a performance report over closed trades instead.
+- `lifetime.py`: rewrite `data/lifetime.md` and `data/lifetime.json`.
+- `compare.py`: print the comparison with the paper-trader, over overlapping days only. It calls a
+  book better only when the 95% range of the daily return difference excludes zero.
 - `review.py run | show`: run the self-review now, or print the memory.
-- `compare.py [--book paper|dry_run]`: comparison to `data/comparison.md`, over overlapping days
-  only. It calls a book better only when the 95% range of the daily return difference excludes zero.
 - `config.py`: create the data folder from the defaults and validate the config.
 - `broker.py`: check the account, calendar, bars and news.
+
+`analyze.py`, `lifetime.py` and `compare.py` take `--book dry_run` or `--book replay` to report on
+a simulated book; those reports go inside the book's folder.
 
 ## Stats
 
 The stats use the same files, columns, sections and math as the paper-trader (`claude-trade`), so
-both books read the same way and can be aggregated by one tool. `<book>` is `data/books/paper/`, or
-`data/books/dry_run/` with `--book dry_run`.
+both books read the same way and can be aggregated by one tool.
 
-| What | Where | Same as the paper-trader |
-|---|---|---|
-| Closed trades | `<book>/trades.csv` | First 16 columns identical; sentiment columns follow |
-| Each day | `<book>/daily_summary.csv` | First 9 columns identical; P&L split, exposure and scoring follow |
-| Day report | `<book>/reports/day_<date>.md` | Same layout as `review/day_report.py`, plus holdings, entries and scores |
-| Performance report | `<book>/reports/report_<date>.md` | Same sections as `analyze.py`, plus score, confidence, hold days and memory version |
-| Lifetime | `<book>/lifetime.md` | Same sections as `lifetime.py`, plus score, confidence, memory version and calibration |
-| Current holdings | `trader.py positions`, `<book>/positions.csv` | Sentiment-trader only; the paper-trader is flat each night |
-
-Shared definitions:
-
-- `date` on a trade is its exit date. `pnl_r` is the P&L per share over the planned risk per
-  share (entry to stop), so a stop-out is about -1R.
-- Exit reasons: `sl` stop, `time` held `max_hold_days`, `flip` score changed sign, `halt`,
-  `loss_limit`, `unknown`.
+- `data/books/paper/trades.csv`: one row per closed trade. The first 16 columns match the
+  paper-trader's; `strategy` is `sentiment_swing` for news scores or the desk idea's kind (`theme`,
+  `pair`, `momentum`, `reversal`, `sector`, `news`), so every report splits results by strategy.
+  Pair legs also record the `pair`.
+- `data/books/paper/daily_summary.csv`: one row per trading day. The first 9 columns match.
+- `date` on a trade is its exit date. `pnl_r` is the P&L per share over the planned risk per share
+  (entry to stop), so a stop-out is about -1R.
+- Exit reasons: `sl` stop, `time` held too long, `flip` score changed sign, `converged`,
+  `diverged` and `pair_leg` for pairs, `halt`, `loss_limit`, `unknown`.
 - Expectancy comes with a 95% range that treats each exit day as one cluster.
 - `gross_pnl` in the daily summary is the P&L of trades closed that day; `day_pnl` is the change in
   equity, including open positions.
@@ -164,7 +180,7 @@ an invalid reply leaves the old memory in place. The review is skipped until at 
 `memory.min_new_outcomes` new outcomes exist.
 
 Scoring appends the lessons to `prompts/scoring.md` as advisory notes. Each score file and trade
-records `memory_sha256`, so the report and lifetime stats show results per memory version. Set
+records `memory_sha256`, so the reports show results per memory version. Set
 `memory.use_in_scoring` to `false` in `data/config.json` to score without the lessons.
 
 The lessons only cover how to read news. Claude still cannot change the trading rules, the config
@@ -173,25 +189,27 @@ or any file.
 ## Stopping
 
 Create a file named `HALT` in the repo root. Every trader job then places no entries and closes
-all positions. Delete it to resume.
+all positions. Delete it to resume. Set `desk.enabled` to `false` in `data/config.json` to trade
+the news scores only.
 
 ## Safety
 
 - The Alpaca client is built with `paper=True` and refuses any endpoint without `paper-api`.
 - Every trader job checks the account differs from `PAPER_TRADER_ACCOUNT`.
-- `data/config.json` is validated against `defaults/config_bounds.json` at every start.
+- `data/config.json` is validated against `defaults/config_bounds.json` at every start. Keys added
+  in a newer version are filled in from the defaults, keeping your values.
 - Hard caps in code: 30 orders a day, no position over 10% of equity, no stock under $5, shorts
   only when easy to borrow.
 - Losing `max_daily_loss_pct` in a day closes everything and blocks entries until the next session.
 - Client order ids are `st-<YYYYMMDD>-<SYMBOL>-<entry|exit|stop>`, so re-running a job never
-  double-submits. Each job reconciles `<book>/positions.csv` with the account on start.
+  double-submits. Each job reconciles `positions.csv` with the account on start.
 
 ## Layout
 
 | Path | What |
 |---|---|
 | `src/` | All Python code; every command runs as `.venv/bin/python src/<name>.py` |
-| `prompts/` | Fixed instructions for scoring and the weekly review |
+| `prompts/` | Fixed instructions for scoring, the desk and the weekly review |
 | `defaults/` | Config and watchlist copied into `data/` once, and the config's hard limits |
 | `scripts/` | `setup.sh`, nightly `backup.sh`, and `migrate.sh` for an old `state/` folder |
 | `tests/` | Test suite, see [tests/README.md](tests/README.md) |
@@ -202,30 +220,19 @@ Inside `data/`:
 
 | Path | What |
 |---|---|
+| `daily/<date>.md`, `lifetime.md` | The two reports, see Where to look |
 | `config.json`, `watchlist.json` | Active config and watchlist; watchlist symbols are always in the universe |
-| `universe.json` | Tonight's screened universe |
-| `news/`, `scores/`, `bars/` | News archive, score files, cached daily bars |
-| `books/paper/`, `books/dry_run/`, `books/replay/` | One folder per book, see below |
+| `universe.json`, `pairs.json` | Tonight's universe and pairs |
+| `news/`, `scores/`, `bars/` | News archive, score files with the desk's ideas, cached daily bars |
+| `books/paper/` | `trades.csv`, `orders.csv`, `positions.csv`, `daily_summary.csv` |
+| `books/dry_run/`, `books/replay/` | Simulated books, with their own reports |
 | `memory/` | Claude's current lessons (`memory.md`, `memory.json`) and every version in `history/` |
 | `logs/` | `cron.log` (all cron output) and `sentiment.log` (warnings and errors with tracebacks) |
-| `comparison.md` | Comparison with the paper-trader |
 | `backups/` | The last 30 nightly archives of `data/` |
-
-Inside each book:
-
-| Path | What |
-|---|---|
-| `trades.csv` | One row per closed trade, see Stats |
-| `orders.csv` | Every submit, fill, cancel, reject and skipped entry |
-| `positions.csv` | Open positions and their stops, marked at the close |
-| `daily_summary.csv` | One row per trading day, written by `trader.py close` |
-| `reports/` | Day reports and performance reports |
-| `lifetime.md`, `lifetime.json` | All-time statistics, rewritten nightly |
 
 To move an old `state/` folder into this layout, run `scripts/migrate.sh`, then `scripts/setup.sh`
 to reinstall the cron jobs. `setup.sh` runs the migration itself when it finds `state/`.
 
 `held_over_earnings` in `trades.csv` stays blank: Alpaca's free data has no earnings calendar.
 
-Rule changes bump `version` in the config, and every trade records it. Keep the rules fixed for
-the first months so results stay interpretable.
+Rule changes bump `version` in the config, and every trade records it.

@@ -1,9 +1,10 @@
 """The tradable universe: the most liquid stocks, rebuilt nightly into data/universe.json.
 
-    python src/universe.py build    screen every listed stock by price and average dollar volume
+    python src/universe.py build    screen every listed stock by price and average dollar volume, then pairs
     python src/universe.py show     print the current universe
 
 The watchlist is always included. Without a universe file, the watchlist alone is the universe.
+`build` then rebuilds the pairs (pairs.py) from the new universe.
 """
 import argparse
 import json
@@ -73,14 +74,25 @@ def main(argv=None):
         print(f"built {record['generated_at']}: {len(record['symbols'])} of {record['listed']} listed stocks")
         print(" ".join(record["symbols"]))
         return 0
+    import pairs
+
     try:
         cfg = config.load_config()
-        record = build(make_broker(cfg, verify_account=False), cfg, datetime.now(ET))
+        broker = make_broker(cfg, verify_account=False)
+        now = datetime.now(ET)
+        record = build(broker, cfg, now)
     except Exception as e:
         log.exception("universe build failed; keeping the previous universe")
         notify(f"universe build failed: {e}")
         return 1
     log.info("universe: %d symbols from %d listed stocks", len(record["symbols"]), record["listed"])
+    try:
+        found = pairs.build(broker, cfg, load(config.load_watchlist()), now)
+        log.info("pairs: %d found among %d symbols", len(found["pairs"]), found["symbols"])
+    except Exception as e:
+        log.exception("pairs build failed; keeping the previous pairs")
+        notify(f"pairs build failed: {e}")
+        return 1
     return 0
 
 

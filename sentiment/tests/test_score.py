@@ -177,3 +177,23 @@ def test_call_claude_command_and_envelope(monkeypatch):
         cmd, 0, stdout=json.dumps({"is_error": True, "result": "x"}), stderr=""))
     with pytest.raises(score.ScoringError):
         score.call_claude("PROMPT", "{}")
+
+
+def test_desk_record_is_stored_and_its_failure_never_stops_scoring(state):
+    news.store([art(1, 3), art(5, 4, ("NKE",))])
+    reply = json.dumps({"AAPL": entry(2, 0.9, "beat", ["1"]), "NKE": entry()})
+    seen = {}
+
+    def desk(scores, articles):
+        seen["scores"], seen["articles"] = scores, articles
+        return {"ideas": [{"kind": "theme"}], "rejected": [], "error": None}
+    path = score.score(NOW, ["AAPL", "NKE"], UCFG, caller=lambda p, i: reply, desk=desk)
+    rec = json.loads(path.read_text())
+    assert rec["desk"]["ideas"] == [{"kind": "theme"}] and set(seen["scores"]) == {"AAPL", "NKE"}
+    assert {a["id"] for a in seen["articles"]} == {"1", "5"}
+    path.unlink()
+
+    def broken(scores, articles):
+        raise ValueError("no bars")
+    rec = json.loads(score.score(NOW, ["AAPL", "NKE"], UCFG, caller=lambda p, i: reply, desk=broken).read_text())
+    assert rec["desk"]["error"] == "ValueError: no bars" and rec["scores"]["AAPL"]["score"] == 2

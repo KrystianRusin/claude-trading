@@ -1,10 +1,12 @@
-"""Performance report and day report for a book, in the same format as the paper-trader's.
+"""The daily file, and a performance report on request, in the same format as the paper-trader's.
 
-    python src/analyze.py [--book paper|dry_run|replay] [--since DATE] [--config-version N] [--no-baseline]
-    python src/analyze.py --day DATE [--book ...] [--no-market]
+    python src/analyze.py [--day DATE] [--book paper|dry_run|replay] [--no-market]
+    python src/analyze.py --report [--book ...] [--since DATE] [--config-version N] [--no-baseline]
 
-Writes <book>/reports/report_<date>.md over all closed trades, and <book>/reports/day_<date>.md for
-one day: equity and P&L, closed trades, holdings at the close, scores, skipped entries and warnings.
+The first writes data/daily/<date>.md: equity and P&L, closed trades, holdings at the close, the
+entries, the desk's ideas with their reasons, the news scores, skipped entries and warnings.
+`--report` prints a performance report over closed trades instead; data/lifetime.md has the same
+sections for all time.
 """
 import argparse
 import csv
@@ -307,8 +309,8 @@ def holdings_table(rows, today, prices=None):
     rows = [r for r in rows if r.get("status") != "pending"]
     if not rows:
         return "No open positions."
-    lines = ["| symbol | side | qty | entry | last | stop | unrealized $ | unrealized % | R | days | score |",
-             "|---|---|---|---|---|---|---|---|---|---|---|"]
+    lines = ["| symbol | side | qty | entry | last | stop | unrealized $ | unrealized % | R | days | score | strategy |",
+             "|---|---|---|---|---|---|---|---|---|---|---|---|"]
     total = 0.0
     for r in sorted(rows, key=lambda r: r["symbol"]):
         entry, qty = float(r["entry_price"]), float(r["qty"])
@@ -325,7 +327,7 @@ def holdings_table(rows, today, prices=None):
             f"{_fmt(pnl, 'usd') if pnl is not None else 'n/a'} | "
             f"{f'{100 * (last / entry - 1) * direction:+.2f}%' if last is not None else 'n/a'} | "
             f"{_fmt((last - entry) * direction / risk, 'r') if last is not None and risk else 'n/a'} | "
-            f"{days} | {r.get('score') or '-'} |")
+            f"{days} | {r.get('score') or '-'} | {_strategy(r)} |")
     lines += ["", f"{len(rows)} positions, unrealized {_fmt(total, 'usd')}."]
     return "\n".join(lines)
 
@@ -375,7 +377,7 @@ def build_day_report(book_dir, day, market=None, scores=None):
     trades = _rows(book_dir / "trades.csv", day)
     orders = _rows(book_dir / "orders.csv", day)
     summary = _rows(book_dir / "daily_summary.csv", day)
-    lines = [f"# Day report {day}", ""]
+    lines = [f"# {day}", ""]
     if summary:
         s = summary[-1]
         lines += [f"- Equity {s['equity_start']} -> {s['equity_end']}, halted: {s['halted']}",
@@ -394,13 +396,13 @@ def build_day_report(book_dir, day, market=None, scores=None):
         r = [float(t["pnl_r"]) for t in trades if t["pnl_r"] not in ("", None)]
         lines += [f"{len(trades)} trades, {sum(p > 0 for p in pnl)} wins, {sum(p < 0 for p in pnl)} losses, "
                   f"net ${sum(pnl):,.2f}, net {sum(r):+.2f}R", "",
-                  "| symbol | side | qty | entry | exit | reason | pnl $ | R | days | score |",
-                  "|---|---|---|---|---|---|---|---|---|---|"]
+                  "| symbol | side | qty | entry | exit | reason | pnl $ | R | days | score | strategy |",
+                  "|---|---|---|---|---|---|---|---|---|---|---|"]
         for t in sorted(trades, key=lambda t: t["exit_time"]):
             lines.append(f"| {t['symbol']} | {t['side']} | {t['qty']} | {t['entry_date']} {_time(t['entry_time'])} "
                          f"@ {t['entry_price']} | {_time(t['exit_time'])} @ {t['exit_price'] or '?'} | "
                          f"{t['exit_reason']} | {t['pnl_usd'] or '-'} | {t['pnl_r'] or '-'} | {t['hold_days']} | "
-                         f"{t['score'] or '-'} |")
+                         f"{t['score'] or '-'} | {_strategy(t)} |")
     else:
         lines.append("No closed trades.")
 
@@ -412,6 +414,7 @@ def build_day_report(book_dir, day, market=None, scores=None):
               f"{o['stop_price'] or '?'} ({o['reason']})" for o in entries] or ["None."]
 
     if scores is not None:
+        lines += ["", "## Desk ideas", "", *desk_lines(scores.get("desk"), entries)]
         nonzero = {s: v for s, v in scores.get("scores", {}).items() if v["score"]}
         lines += ["", "## Scores", "",
                   f"{len(scores.get('scores', {}))} symbols scored from {scores.get('input_articles', 0)} articles, "
@@ -430,6 +433,27 @@ def build_day_report(book_dir, day, market=None, scores=None):
     return "\n".join(lines) + "\n"
 
 
+def _strategy(row):
+    return (row.get("strategy") or "sentiment_swing") + (f" {row['pair']}" if row.get("pair") else "")
+
+
+def desk_lines(desk, entries=()):
+    """The desk's ideas for the day file: kind, legs, conviction, whether entered, reason and evidence."""
+    if not desk:
+        return ["No desk run this day."]
+    if desk.get("error"):
+        return [f"The desk failed: {desk['error']}"]
+    entered = {o["symbol"] for o in entries}
+    lines = []
+    for i in desk.get("ideas", []):
+        legs = " / ".join(f"{leg['side']} {leg['symbol']}" for leg in i["legs"])
+        status = "entered" if all(leg["symbol"] in entered for leg in i["legs"]) else "not entered"
+        lines.append(f"- **{i['kind']}** {legs} (conviction {i['conviction']}, confidence {i['confidence']:.2f}, "
+                     f"{status}): {i['reason']} Evidence: {', '.join(i['evidence'])}")
+    lines += [f"- Dropped: {p}" for p in desk.get("rejected", [])]
+    return lines or ["No ideas today."]
+
+
 def _read_positions(book_dir):
     path = book_dir / "positions.csv"
     if not path.exists():
@@ -439,28 +463,28 @@ def _read_positions(book_dir):
 
 
 def main(argv=None):
-    import config
     import score
 
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--book", choices=["paper", "dry_run", "replay"], default="paper")
+    ap.add_argument("--day", type=date.fromisoformat, help="the day to write (default today)")
+    ap.add_argument("--no-market", action="store_true")
+    ap.add_argument("--report", action="store_true", help="print a performance report instead")
     ap.add_argument("--since", type=date.fromisoformat)
     ap.add_argument("--config-version", type=int)
-    ap.add_argument("--day", type=date.fromisoformat, help="write only the day report for this date")
     ap.add_argument("--no-baseline", action="store_true")
-    ap.add_argument("--no-market", action="store_true")
     args = ap.parse_args(argv)
     book = args.book
     d = paths.book_dir(book)
-    out = paths.reports_dir(book)
-    out.mkdir(parents=True, exist_ok=True)
     today = args.day or datetime.now(ET).date()
-
-    market = None if args.no_market else market_move(today)
-    day_text = build_day_report(d, today, market, score.load_scores(today))
-    (out / f"day_{today.isoformat()}.md").write_text(day_text, encoding="utf-8")
-    print(day_text)
-    if args.day:
+    if not args.report:
+        market = None if args.no_market else market_move(today)
+        text = build_day_report(d, today, market, score.load_scores(today))
+        path = paths.daily_file(book, today)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+        print(text)
+        print(f"written to {path}")
         return 0
 
     all_trades = read_trades_frame(d / "trades.csv")
@@ -475,12 +499,8 @@ def main(argv=None):
         start_equity = start_equity_for(summary, df["date"].min())
         if not args.no_baseline:
             baseline = spy_baseline(df["date"].min(), df["date"].max())
-    report = build_report(df, start_equity, baseline, title=f"Performance report {today}", filters=filters,
-                          unpriced=unpriced)
-    path = out / f"report_{today.isoformat()}.md"
-    path.write_text(report, encoding="utf-8")
-    print(report)
-    print(f"written to {path} and {out / f'day_{today.isoformat()}.md'}")
+    print(build_report(df, start_equity, baseline, title=f"Performance report {today}", filters=filters,
+                       unpriced=unpriced))
     return 0
 
 

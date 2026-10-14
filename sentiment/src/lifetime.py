@@ -2,10 +2,11 @@
 
     python src/lifetime.py [--book paper|dry_run|replay] [--no-baseline]
 
-Writes <book>/lifetime.md to read and <book>/lifetime.json for the weekly review. After the
-paper-trader's sections it adds the sentiment-specific ones: by score, confidence and memory
-version, and score calibration: for every score in every score file (traded or not), the stock's
-return from that day's open to the open `max_hold_days` trading days later.
+Writes data/lifetime.md to read and data/lifetime.json for the weekly review (inside the book's
+folder for dry-run and replay). After the paper-trader's sections it adds the sentiment-specific
+ones: by strategy, score, confidence and memory version; score calibration: for every score in every
+score file (traded or not), the stock's return from that day's open to the open `max_hold_days`
+trading days later; and the comparison with the paper-trader.
 """
 import argparse
 import csv
@@ -257,7 +258,7 @@ def load_outcomes(records, horizon):
 
 
 def build(book, horizon, log=None, outcomes=None, fetch=True):
-    """Write <book>/lifetime.md and lifetime.json. Returns the JSON stats.
+    """Write the lifetime file and its JSON. Returns the JSON stats.
 
     With fetch=False nothing is downloaded: calibration uses `outcomes` and the SPY baseline is skipped.
     """
@@ -277,7 +278,13 @@ def build(book, horizon, log=None, outcomes=None, fetch=True):
     text = build_lifetime(trades, summary, baseline, outcomes=outcomes, horizon=horizon,
                           holdings=_open_positions(book))
     stats = compute(trades, summary, outcomes) | {"book": book}
-    d.mkdir(parents=True, exist_ok=True)
+    if book != "replay":
+        from compare import comparison
+
+        versus = comparison(book, fetch=fetch)
+        versus = versus.replace("# Sentiment trader vs paper-trader", "## Versus the paper-trader", 1)
+        text = text.rstrip("\n") + "\n\n" + versus
+    paths.lifetime_file(book).parent.mkdir(parents=True, exist_ok=True)
     paths.lifetime_file(book).write_text(text, encoding="utf-8")
     paths.lifetime_json(book).write_text(json.dumps(stats, indent=1, default=str), encoding="utf-8")
     return stats

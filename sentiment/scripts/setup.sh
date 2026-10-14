@@ -181,8 +181,8 @@ Schedule (local time, Eastern):
   scoring      06:30 weekdays
   trader run   09:45 weekdays (exits early on holidays)
   trader close 16:15 weekdays
-  reports      18:30 weekdays (data/books/<mode>/reports/, lifetime.md; data/comparison.md)
-  universe     19:15 weekdays (data/universe.json)
+  reports      18:30 weekdays (data/daily/<date>.md and data/lifetime.md)
+  universe     19:15 weekdays (data/universe.json, then data/pairs.json)
   review       19:45 Fridays (data/memory/memory.md)
   backup       03:00 daily (data/backups/)
 
