@@ -4,7 +4,7 @@
             "allow_shorts": true, "run_time": "09:45"},
   "exit": {"max_hold_days": 5, "exit_on_score_flip": true,
            "stop_atr_multiple": 2.0, "atr_days": 14},
-  "risk": {"position_pct_of_equity": 5, "max_positions": 14, "max_gross_exposure_pct": 80,
+  "risk": {"position_pct_of_equity": 5, "max_gross_exposure_pct": 80,
            "max_net_exposure_pct": 40, "max_daily_loss_pct": 2.0},
   "universe": {"max_symbols": 400, "min_price": 5, "min_dollar_volume": 1000000, "volume_days": 20,
                "max_scored_per_day": 60, "batch_size": 20},

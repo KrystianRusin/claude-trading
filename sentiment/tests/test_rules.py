@@ -103,8 +103,8 @@ def test_plan_entries_respects_book_limits_and_order_cap():
     cands = [cand(s) for s in "ABCDEFGHIJ"]
     plans, skips = plan(cands)
     assert len(plans) == 8 and dict(skips)["I"] == "net_exposure"  # 8 x 5% = 40% net
-    plans, skips = plan(cands, book_values=[5000.0, -5000.0] * 6 + [5000.0])
-    assert len(plans) == 1 and dict(skips)["B"] == "max_positions"
+    plans, skips = plan(cands, book_values=[5000.0, -5000.0] * 7 + [5000.0])  # 75% gross
+    assert len(plans) == 1 and dict(skips)["B"] == "gross_exposure"
     plans, skips = plan(cands, orders_today=29)
     assert len(plans) == 1 and dict(skips)["B"] == "order_cap"
 

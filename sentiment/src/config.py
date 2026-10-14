@@ -11,7 +11,7 @@ import paths
 
 SYMBOL_RE = re.compile(r"^[A-Z][A-Z.]{0,5}$")
 TIME_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
-RETIRED_KEYS = ("mode",)
+RETIRED_KEYS = ("mode", "risk.max_positions")
 
 
 class ConfigError(RuntimeError):
@@ -82,6 +82,16 @@ def validate(cfg, bounds):
     return errors
 
 
+def _without(cfg, dotted):
+    """`cfg` without the key at the dotted path, if present."""
+    head, _, rest = dotted.partition(".")
+    if head not in cfg:
+        return cfg
+    if not rest:
+        return {k: v for k, v in cfg.items() if k != head}
+    return cfg | {head: _without(cfg[head], rest)} if isinstance(cfg[head], dict) else cfg
+
+
 def _with_defaults(cfg, default):
     """`cfg` with every key missing from it taken from `default`; existing values are kept."""
     out = dict(cfg)
@@ -99,7 +109,10 @@ def upgrade(path, cfg):
     New keys mean new rules, so the version is raised to the default's. Rewrites the file only when it changed.
     """
     default = load_json(paths.CONFIG_DEFAULT)
-    new = _with_defaults({k: v for k, v in cfg.items() if k not in RETIRED_KEYS}, default)
+    trimmed = cfg
+    for key in RETIRED_KEYS:
+        trimmed = _without(trimmed, key)
+    new = _with_defaults(trimmed, default)
     if set(_flatten(new)) - set(_flatten(cfg)):
         new["version"] = max(cfg.get("version", 1), default["version"])
     if new != cfg:

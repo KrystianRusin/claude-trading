@@ -161,8 +161,8 @@ Each weekday:
      the desk's ideas (strategy = the idea's kind). Long when score is +2, or +1 with confidence
      >= 0.7 (when `allow_score_1`); short mirrored for -2/-1; desk ideas use conviction in place of
      |score|. Skip symbols already held, hard-to-borrow shorts, and anything that would break a
-     book limit. Rank by conviction then confidence, news scores first on ties; fill up to
-     `max_positions`. A pair enters both legs or neither, each leg sized like a single position
+     exposure limit. Rank by conviction then confidence, news scores first on ties; there is no
+     cap on the number of positions, only on gross and net exposure. A pair enters both legs or neither, each leg sized like a single position
      with a `pairs.stop_atr_multiple` (3) x ATR stop.
    - Size: `position_pct_of_equity` of equity, rounded down to whole shares, skipped if zero.
    - Entry: market order with a protective stop at `stop_atr_multiple` x 14-day ATR from the
@@ -180,7 +180,7 @@ trade row records.
 
 ## 6. Risk (`risk.py`)
 
-- Position size, ATR stop distance, and book limits: max positions, gross and net exposure as % of
+- Position size, ATR stop distance, and book limits: gross and net exposure as % of
   equity.
 - Daily loss: realized plus unrealized P&L from the account. Breaching `max_daily_loss_pct` closes
   everything and blocks entries until the next trading day.

@@ -19,10 +19,11 @@ real borrow costs, and results over a short window are not evidence of skill.
 | `data/daily/<date>.md` | Everything about one day: equity and P&L, closed trades, holdings at the close, entries, the desk's ideas with their reasoning, news scores, skipped entries, warnings |
 | `data/lifetime.md` | Everything since the start: totals, by strategy, month, ticker, score and exit reason, current holdings, score calibration, and the comparison with the paper-trader |
 
-Both are rewritten at 18:30 each weekday. For live holdings at any time:
+Both are rewritten at 18:30 each weekday. For live holdings with each position's P&L since entry,
+at any time:
 
 ```bash
-.venv/bin/python src/trader.py positions
+scripts/positions.sh
 ```
 
 ## How it works
@@ -53,7 +54,8 @@ Both are rewritten at 18:30 each weekday. For live holdings at any time:
 6. `trader.py run` (09:45) exits positions, then enters candidates from both the scores and the
    desk, one shared pool ranked by conviction (|score|) then confidence. Each needs |score| 2, or 1
    with confidence of at least 0.7. Each position is 5% of equity with a GTC stop at 2 x the
-   14-day ATR (3 x for pair legs). A pair enters both legs or neither.
+   14-day ATR (3 x for pair legs). A pair enters both legs or neither. There is no cap on the
+   number of positions; entries stop when gross exposure would pass 80% or net 40% of equity.
 7. Exits: news and desk positions after `max_hold_days` (5) or when their score flips sign. Pairs
    when the gap is back within 0.5 standard deviations (`converged`), widens past 4 (`diverged`),
    after 10 days (`time`), or when one leg is stopped out (`pair_leg`).
@@ -211,7 +213,7 @@ the news scores only.
 | `src/` | All Python code; every command runs as `.venv/bin/python src/<name>.py` |
 | `prompts/` | Fixed instructions for scoring, the desk and the weekly review |
 | `defaults/` | Config and watchlist copied into `data/` once, and the config's hard limits |
-| `scripts/` | `setup.sh`, nightly `backup.sh`, and `migrate.sh` for an old `state/` folder |
+| `scripts/` | `positions.sh`, `setup.sh`, nightly `backup.sh`, and `migrate.sh` for an old `state/` folder |
 | `tests/` | Test suite, see [tests/README.md](tests/README.md) |
 | `docs/SPEC.md` | The design |
 | `data/` | Everything the system writes; not in git |

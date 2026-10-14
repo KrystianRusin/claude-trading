@@ -3,7 +3,7 @@ import pytest
 
 import risk
 
-LIMITS = {"max_positions": 3, "max_gross_exposure_pct": 60, "max_net_exposure_pct": 40}
+LIMITS = {"max_gross_exposure_pct": 60, "max_net_exposure_pct": 40}
 
 
 def bars(n, high=101.0, low=99.0, close=100.0):
@@ -33,11 +33,11 @@ def test_position_qty_rounds_down_and_caps():
 def test_exposure_and_book_limits():
     assert risk.exposure_pct([30_000, -10_000], 100_000) == (40.0, 20.0)
     assert risk.fits_book([5000, 5000], 5000, 100_000, LIMITS) is None
-    assert risk.fits_book([5000, 5000, 5000], 5000, 100_000, LIMITS) == "max_positions"
     assert risk.fits_book([], 11_000, 100_000, LIMITS) == "position_cap"
     assert risk.fits_book([30_000, -25_000], 9000, 100_000, LIMITS | {"max_gross_exposure_pct": 60}) == "gross_exposure"
-    assert risk.fits_book([20_000, 18_000], 5000, 100_000, LIMITS | {"max_positions": 5}) == "net_exposure"
-    assert risk.fits_book([-20_000, -18_000], -5000, 100_000, LIMITS | {"max_positions": 5}) == "net_exposure"
+    assert risk.fits_book([20_000, 18_000], 5000, 100_000, LIMITS) == "net_exposure"
+    assert risk.fits_book([-20_000, -18_000], -5000, 100_000, LIMITS) == "net_exposure"
+    assert risk.fits_book([5000, -5000] * 10, 5000, 100_000, LIMITS | {"max_gross_exposure_pct": 200}) is None
 
 
 def test_daily_loss():

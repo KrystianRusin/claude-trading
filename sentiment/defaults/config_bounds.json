@@ -10,7 +10,6 @@
   "exit.stop_atr_multiple": {"type": "number", "min": 0.5, "max": 5.0},
   "exit.atr_days": {"type": "int", "min": 5, "max": 30},
   "risk.position_pct_of_equity": {"type": "number", "min": 0.5, "max": 10},
-  "risk.max_positions": {"type": "int", "min": 1, "max": 20},
   "risk.max_gross_exposure_pct": {"type": "number", "min": 5, "max": 100},
   "risk.max_net_exposure_pct": {"type": "number", "min": 0, "max": 100},
   "risk.max_daily_loss_pct": {"type": "number", "min": 0.5, "max": 5.0},

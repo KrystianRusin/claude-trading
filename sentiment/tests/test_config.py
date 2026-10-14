@@ -21,7 +21,7 @@ def test_default_watchlist_is_valid():
 
 @pytest.mark.parametrize("section,key,value,fragment", [
     ("risk", "position_pct_of_equity", 25, "outside"),
-    ("risk", "max_positions", 3.5, "integer"),
+    ("exit", "atr_days", 3.5, "integer"),
     ("entry", "allow_shorts", 1, "true or false"),
     ("entry", "run_time", "9:45", "HH:MM"),
     ("entry", "run_time", "08:00", "outside"),
@@ -57,10 +57,10 @@ def test_init_data_copies_defaults_and_never_overwrites(state):
     assert cfg_path.exists() and paths.watchlist_file().exists()
     assert paths.news_dir().is_dir() and paths.scores_dir().is_dir()
     cfg = json.loads(cfg_path.read_text())
-    cfg["risk"]["max_positions"] = 4
+    cfg["risk"]["position_pct_of_equity"] = 4
     cfg_path.write_text(json.dumps(cfg))
     assert config.init_data() == []
-    assert config.load_config()["risk"]["max_positions"] == 4
+    assert config.load_config()["risk"]["position_pct_of_equity"] == 4
 
 
 def test_load_config_refuses_out_of_bounds(state):
@@ -91,12 +91,13 @@ def test_data_dir_override(state):
 def test_old_config_gets_new_sections_and_keeps_its_values(state):
     cfg = json.loads(paths.config_file().read_text())
     old = {k: v for k, v in cfg.items() if k not in ("desk", "pairs")} | {"version": 1}
-    old["risk"] = dict(old["risk"], max_positions=6)
+    old["risk"] = dict(old["risk"], position_pct_of_equity=6, max_positions=10)
     del old["risk"]["max_net_exposure_pct"]
     paths.config_file().write_text(json.dumps(old))
     new = config.load_config()
-    assert new["desk"] == cfg["desk"] and new["pairs"] == cfg["pairs"]
-    assert new["risk"]["max_positions"] == 6 and new["risk"]["max_net_exposure_pct"] == cfg["risk"]["max_net_exposure_pct"]
+    assert new["desk"] == cfg["desk"] and new["pairs"] == cfg["pairs"] and "max_positions" not in new["risk"]
+    assert new["risk"]["position_pct_of_equity"] == 6
+    assert new["risk"]["max_net_exposure_pct"] == cfg["risk"]["max_net_exposure_pct"]
     assert new["version"] == cfg["version"] == json.loads(paths.config_file().read_text())["version"]
     before = paths.config_file().stat().st_mtime_ns
     config.load_config()

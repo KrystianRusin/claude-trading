@@ -38,9 +38,7 @@ def exposure_pct(signed_values, equity):
 
 
 def fits_book(signed_values, add_value, equity, risk_cfg):
-    """None if adding a position of `add_value` (signed) keeps the book within limits, else the reason."""
-    if len(signed_values) + 1 > risk_cfg["max_positions"]:
-        return "max_positions"
+    """None if adding a position of `add_value` (signed) keeps the book within its exposure limits, else the reason."""
     if abs(add_value) > equity * MAX_POSITION_PCT / 100:
         return "position_cap"
     gross, net = exposure_pct(list(signed_values) + [add_value], equity)
