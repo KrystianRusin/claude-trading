@@ -157,19 +157,7 @@ step "Universe (screening listed stocks, takes a minute or two)"
 "$PY" src/universe.py build
 
 step "Cron jobs"
-LOG="$REPO/data/logs/cron.log"
-RUN="cd $REPO &&"
-cron_lines="*/30 7-20 * * 1-5 $RUN $PY src/news.py fetch >> $LOG 2>&1 $CRON_TAG
-0 10,18 * * 0,6 $RUN $PY src/news.py fetch >> $LOG 2>&1 $CRON_TAG
-30 6 * * 1-5 . $SECRETS; $RUN $PY src/score.py run >> $LOG 2>&1 $CRON_TAG
-45 9 * * 1-5 $RUN $PY src/trader.py run >> $LOG 2>&1 $CRON_TAG
-15 16 * * 1-5 $RUN $PY src/trader.py close >> $LOG 2>&1 $CRON_TAG
-30 18 * * 1-5 $RUN $PY src/analyze.py >> $LOG 2>&1; $PY src/lifetime.py >> $LOG 2>&1; $PY src/compare.py >> $LOG 2>&1 $CRON_TAG
-15 19 * * 1-5 $RUN $PY src/universe.py build >> $LOG 2>&1 $CRON_TAG
-45 19 * * 5 . $SECRETS; $RUN $PY src/review.py run >> $LOG 2>&1 $CRON_TAG
-0 3 * * * $REPO/scripts/backup.sh >> $LOG 2>&1 $CRON_TAG"
-existing=$(crontab -l 2>/dev/null || true)
-{ grep -vF "$CRON_TAG" <<<"$existing" || true; echo "$cron_lines"; } | crontab -
+scripts/cron.sh install
 echo "OK: installed"
 
 step "Done"
@@ -185,6 +173,7 @@ Schedule (local time, Eastern):
   universe     19:15 weekdays (data/universe.json, then data/pairs.json)
   review       19:45 Fridays (data/memory/memory.md)
   backup       03:00 daily (data/backups/)
+  deploy       every 5 min: new commits on origin/main ship once CI passes (data/logs/deploy.log)
 
 Logs: data/logs/cron.log (everything), data/logs/sentiment.log (warnings and errors).
 

@@ -102,6 +102,9 @@ logged or printed.
 | 19:15 weekdays | `universe.py build`, then the pairs |
 | 19:45 Fridays | `review.py run` |
 | 03:00 daily | `scripts/backup.sh` |
+| Every 5 min | `scripts/deploy.sh`: ships new commits on `origin/main` once CI passes |
+
+The schedule lives in `scripts/cron.sh`; every deploy reinstalls it.
 
 The times avoid the paper-trader's 09:00 start and 17:00 review.
 
@@ -109,6 +112,27 @@ The cron jobs trade the paper account. `trader.py run` and `close` do nothing on
 and weekends; `--force` runs them anyway. `--dry-run` on any `trader.py` command uses simulated
 fills and a separate book in `data/books/dry_run/` instead, for trying changes without placing
 orders.
+
+## Continuous deployment
+
+Every push and pull request runs the tests on GitHub Actions (`.github/workflows/ci.yml`, Python 3.11
+like the Pi). The Pi pulls changes; GitHub never pushes to it (no inbound access, and no self-hosted runner, which is unsafe on a repo):
+
+- `scripts/cron.sh` holds the whole schedule. `setup.sh` installs it, and every deploy reinstalls it, so schedule changes ship like code.
+- `scripts/deploy.sh` runs every 5 minutes. When `origin/main` has a new commit and CI passed for it,
+  it takes the deploy lock, fast-forwards, runs `pip install` if `requirements.txt` changed, runs the
+  checks on the Pi, and reinstalls cron. If a check fails it rolls back to the previous commit
+  (restoring the config too) and does not retry that commit. It refuses to deploy over local commits
+  or local changes, because the checkout should always equal `origin/main`.
+- Every scheduled job runs through `scripts/job.sh`, which holds a shared lock on `data/deploy.lock`.
+  A deploy only starts when no job holds it, and a job that starts during a deploy waits for it. So
+  code never changes under a running trading session or review.
+- `data/` is never touched beyond what the checks do (merging new config keys), so Claude's state
+  survives every deploy.
+
+Settings in `.env`: `NTFY_TOPIC` for deploy notifications, `DEPLOY_GITHUB_TOKEN` (a fine-grained
+read-only token with Checks access, needed for private repos), and `DEPLOY_CI_CHECK=skip` to deploy
+without waiting for CI. Logs: `data/logs/deploy.log`, plus the output of the last checks in `data/deploy_checks.log`.
 
 ## Commands
 
