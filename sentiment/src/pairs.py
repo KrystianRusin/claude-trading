@@ -110,7 +110,7 @@ def build(broker, cfg, symbols, now):
 def main(argv=None):
     import config
     import universe
-    from broker import make_broker
+    from broker import make_market_data
     from logger import setup_logging
 
     ap = argparse.ArgumentParser(description="pairs of stocks that move together")
@@ -121,7 +121,7 @@ def main(argv=None):
     cfg = config.load_config()
     now = datetime.now(ET)
     if args.command == "build":
-        broker = make_broker(cfg, verify_account=False)
+        broker = make_market_data(cfg)
         record = build(broker, cfg, universe.load(config.load_watchlist()), now)
         log.info("pairs: %d found among %d symbols", len(record["pairs"]), record["symbols"])
         return 0
@@ -129,7 +129,7 @@ def main(argv=None):
     if not pairs:
         print("no pairs yet; they are built with the nightly universe")
         return 0
-    broker = make_broker(cfg, verify_account=False)
+    broker = make_market_data(cfg)
     prices = broker.latest_prices(sorted({s for p in pairs for s in (p["a"], p["b"])}))
     print("| pair | correlation | half-life days | z now |")
     print("|---|---|---|---|")

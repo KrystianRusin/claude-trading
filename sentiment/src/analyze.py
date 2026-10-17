@@ -283,9 +283,9 @@ def spy_baseline(first, last):
     """SPY buy-and-hold return in percent from `first` open to `last` close, or an error string."""
     try:
         import config
-        from broker import make_broker
+        from broker import make_market_data
 
-        broker = make_broker(config.load_config(), verify_account=False)
+        broker = make_market_data(config.load_config())
         bars = broker.daily_bars(["SPY"], datetime.combine(first, datetime.min.time(), ET),
                                  datetime.combine(last + timedelta(days=1), datetime.min.time(), ET)).get("SPY")
         if bars is None or bars.empty:
@@ -359,10 +359,10 @@ def market_move(day):
     """SPY open-to-close move and intraday range in percent, or an explanation string."""
     try:
         import config
-        from broker import make_broker
+        from broker import make_market_data
 
         start = datetime.combine(day, datetime.min.time(), ET)
-        bars = make_broker(config.load_config(), verify_account=False).daily_bars(
+        bars = make_market_data(config.load_config()).daily_bars(
             ["SPY"], start, start + timedelta(days=1)).get("SPY")
         if bars is None or bars.empty:
             return "no SPY bar returned"

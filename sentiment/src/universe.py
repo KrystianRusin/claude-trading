@@ -57,7 +57,7 @@ def load(watchlist):
 
 def main(argv=None):
     import config
-    from broker import make_broker
+    from broker import make_market_data
     from logger import notify, setup_logging
 
     ap = argparse.ArgumentParser(description="tradable universe")
@@ -78,7 +78,7 @@ def main(argv=None):
 
     try:
         cfg = config.load_config()
-        broker = make_broker(cfg, verify_account=False)
+        broker = make_market_data(cfg)
         now = datetime.now(ET)
         record = build(broker, cfg, now)
     except Exception as e:

@@ -8,7 +8,7 @@ import pytest
 import config
 import paths
 import trader
-from broker import ET, OTOUnavailableError
+from broker import ET, Capabilities, OTOUnavailableError
 from logger import Book
 from simbroker import SimBroker
 
@@ -188,6 +188,23 @@ def test_oto_fallback_submits_separate_stop(state):
     write_scores(D0, AAPL=(2, 0.9))
     env.job(D0, "run")
     row = env.rows()["AAPL"]
+    stop = env.sim.get_order(row["stop_order_id"])
+    assert stop.client_order_id == f"st-{D0:%Y%m%d}-AAPL-stop" and stop.stop_price == 96.0 and stop.is_open
+
+
+class NoAttachedStops(SimBroker):
+    capabilities = Capabilities(attached_stop=False)
+
+    def submit_entry(self, *a, **kw):
+        raise AssertionError("a backend without attached stops must not get submit_entry")
+
+
+def test_backend_without_attached_stops_uses_separate_stop(state):
+    env = Env(broker_cls=NoAttachedStops)
+    write_scores(D0, AAPL=(2, 0.9))
+    env.job(D0, "run")
+    row = env.rows()["AAPL"]
+    assert row["status"] == "open"
     stop = env.sim.get_order(row["stop_order_id"])
     assert stop.client_order_id == f"st-{D0:%Y%m%d}-AAPL-stop" and stop.stop_price == 96.0 and stop.is_open
 

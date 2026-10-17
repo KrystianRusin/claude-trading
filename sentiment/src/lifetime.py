@@ -246,7 +246,7 @@ def compute(trades, summary, outcomes=None):
 def load_outcomes(records, horizon):
     """Forward returns for every scored symbol, using cached bars and Alpaca when reachable."""
     import config
-    from broker import load_bars, make_broker
+    from broker import load_bars, make_market_data
 
     symbols = sorted({s for r in records for s in r.get("scores", {})})
     if not symbols:
@@ -254,7 +254,7 @@ def load_outcomes(records, horizon):
     start = pd.Timestamp(records[0]["date"]).date() - timedelta(days=7)
     end = pd.Timestamp.now(tz="America/New_York").date()
     try:
-        broker = make_broker(config.load_config(), verify_account=False)
+        broker = make_market_data(config.load_config())
     except Exception:
         broker = None
     return score_outcomes(records, load_bars(symbols, start, end, broker), horizon)

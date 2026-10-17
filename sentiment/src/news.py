@@ -101,7 +101,7 @@ def status(today, symbols, days=7, top=8):
 def main(argv=None):
     import config
     import universe
-    from broker import make_broker
+    from broker import make_market_data
     from logger import notify, setup_logging
 
     ap = argparse.ArgumentParser(description="news archive")
@@ -116,7 +116,7 @@ def main(argv=None):
         return 0
     try:
         cfg = config.load_config()
-        new = fetch(make_broker(cfg, verify_account=False), symbols, now)
+        new = fetch(make_market_data(cfg), symbols, now)
     except Exception as e:
         log.exception("news fetch failed")
         notify(f"news fetch failed: {e}")

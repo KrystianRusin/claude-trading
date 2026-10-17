@@ -17,7 +17,7 @@ import pairs
 import paths
 import risk
 import score
-from broker import ET, DuplicateOrderError, OTOUnavailableError, load_bars
+from broker import ET, FILLED, DuplicateOrderError, OTOUnavailableError, load_bars
 from logger import STRATEGY, Book, notify, setup_logging, trade_row
 
 FETCH_DAYS = 45
@@ -207,7 +207,7 @@ class Trader:
                 if o.is_open:
                     kept.append(row)
                     continue
-                if o.status != "filled":
+                if o.status != FILLED:
                     self.order_event(f"entry_{o.status}", o, reason="entry not filled")
                     continue
                 row.update(status="open", entry_price=o.filled_avg_price, qty=o.filled_qty,
@@ -245,7 +245,7 @@ class Trader:
             if not oid or exit_price is not None:
                 continue
             o = self.broker.get_order(oid)
-            if o.status == "filled":
+            if o.status == FILLED:
                 exit_price, reason = o.filled_avg_price, why
                 exit_time = o.filled_at or self.now
                 self.order_event("fill", o, reason=why)
@@ -264,7 +264,7 @@ class Trader:
                 continue
             if row.get("stop_order_id"):
                 o = self.broker.get_order(row["stop_order_id"])
-                if o.is_open or o.status == "filled":
+                if o.is_open or o.status == FILLED:
                     continue
             if not row.get("stop_price"):
                 row["stop_price"] = self._stop_for(row["symbol"], row["side"], float(row["entry_price"]))
@@ -304,7 +304,7 @@ class Trader:
             return False
         if row.get("stop_order_id"):
             stop = self.broker.cancel_order(row["stop_order_id"])
-            if stop.status == "filled":
+            if stop.status == FILLED:
                 return False
             self.order_event("cancel", stop, reason=reason)
         cid = self.cid(row["symbol"], "exit")
@@ -329,16 +329,22 @@ class Trader:
     def enter(self, plan, record):
         sym = plan["symbol"]
         cid = self.cid(sym, "entry")
-        fallback = False
+        fallback = not self.broker.capabilities.attached_stop
         try:
-            o = self.broker.submit_entry(sym, plan["side"], plan["qty"], plan["stop_price"], cid)
+            if not fallback:
+                o = self.broker.submit_entry(sym, plan["side"], plan["qty"], plan["stop_price"], cid)
         except DuplicateOrderError:
             self.log.info("%s entry %s already submitted", sym, cid)
             return
         except OTOUnavailableError as e:
             self.log.warning("%s OTO entry rejected (%s); market entry with a separate stop", sym, e)
-            o = self.broker.submit_market_order(sym, "buy" if plan["side"] == "long" else "sell", plan["qty"], cid)
             fallback = True
+        if fallback:
+            try:
+                o = self.broker.submit_market_order(sym, "buy" if plan["side"] == "long" else "sell", plan["qty"], cid)
+            except DuplicateOrderError:
+                self.log.info("%s entry %s already submitted", sym, cid)
+                return
         self.order_event("submit", o, reason=plan["reason"][:200], price=plan["price"])
         self.log.info("entry %s %s %d at ~%.2f, stop %.2f (%s)", sym, plan["side"], plan["qty"], plan["price"],
                       plan["stop_price"], plan["reason"][:120])
@@ -601,7 +607,7 @@ def show_positions(broker, book):
 
 def main(argv=None):
     import config
-    from broker import make_broker
+    from broker import make_broker, make_market_data
     from simbroker import SimBroker
 
     ap = argparse.ArgumentParser(description="sentiment swing trader")
@@ -620,7 +626,7 @@ def main(argv=None):
                 ap.error("replay needs --from and --to")
             symbols = scored_symbols(args.start, args.end)
             try:
-                source = make_broker(cfg, verify_account=False)
+                source = make_market_data(cfg)
             except Exception:
                 log.info("no Alpaca access; replaying from cached bars only")
                 source = None

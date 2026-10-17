@@ -254,6 +254,7 @@ the news scores only.
 ## Safety
 
 - The Alpaca client is built with `paper=True` and refuses any endpoint without `paper-api`.
+- Any execution backend on a live account is refused unless `ALLOW_LIVE=1` is in `.env`.
 - Every trader job checks the account differs from `PAPER_TRADER_ACCOUNT`.
 - `data/config.json` is validated against `defaults/config_bounds.json` at every start. Keys added
   in a newer version are filled in from the defaults, keeping your values.
@@ -262,6 +263,41 @@ the news scores only.
 - Losing `max_daily_loss_pct` in a day closes everything and blocks entries until the next session.
 - Client order ids are `st-<YYYYMMDD>-<SYMBOL>-<entry|exit|stop>`, so re-running a job never
   double-submits. Each job reconciles `positions.csv` with the account on start.
+
+## Broker backends
+
+`src/broker.py` defines the broker-neutral interface and nothing Alpaca-specific. A backend fills
+one or both roles:
+
+- `MarketData`: calendar, daily bars, latest prices, assets and news.
+- `ExecutionBroker`: account, entries with an attached stop, market and stop orders, cancels,
+  positions, and `is_paper()`. It declares `capabilities` (today only `attached_stop`). Without
+  attached stops, the trader places a market entry and then a separate GTC stop, the same path it
+  already takes when Alpaca rejects an OTO order.
+
+The trader gets one `Broker` that combines the two, so orders can go to one broker while data and
+news come from another. Backends translate their order statuses into the neutral ones in
+`broker.py` (`new`, `held`, `partially_filled`, `pending_cancel`, `filled`, `canceled`, `rejected`,
+`expired`) and their errors into `BrokerError` subclasses (`DuplicateOrderError`,
+`OTOUnavailableError`, `OrderRejectedError`, `LiveAccountError`). Only `src/alpaca_backend.py`
+imports alpaca-py. The scoring, news, universe, pairs and report jobs only use the data role, so
+they never need trading access.
+
+| `.env` setting | Default | Meaning |
+|---|---|---|
+| `BROKER_BACKEND` | `alpaca` | where orders go: `alpaca` (paper only) or `ibkr` (a stub, see below) |
+| `DATA_BACKEND` | `alpaca` | where bars, the calendar and news come from |
+| `ALLOW_LIVE` | unset | must be exactly `1` before an execution backend on a live account may run |
+
+`src/ibkr_backend.py` is an Interactive Brokers stub. It can be selected and reports paper or live
+(`IBKR_ACCOUNT` starting `DU`, or ports 4002/7497), so the live gate already applies, but every
+account and order call raises `NotImplementedError`. Its docstring lists what the real backend
+needs.
+
+To add a backend, implement the role classes, register it in `EXECUTION_BACKENDS` or
+`DATA_BACKENDS` in `broker.py`, and add a harness to `tests/test_broker_contract.py`. That suite is
+the contract the trader relies on, and SimBroker and Alpaca (on a fake client) both pass it. A
+backend must pass it before it trades.
 
 ## Layout
 

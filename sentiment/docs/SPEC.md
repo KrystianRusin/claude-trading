@@ -42,7 +42,8 @@ sentiment-trader/
   README.md  requirements.txt  pytest.ini  .env.example
   src/                    # all Python modules, run as python src/<name>.py
     paths.py              # every data path in one place; DATA_DIR overridable for tests
-    broker.py  simbroker.py  news.py  universe.py  pairs.py  score.py  desk.py  trader.py
+    broker.py  alpaca_backend.py  ibkr_backend.py  simbroker.py  news.py  universe.py  pairs.py
+    score.py  desk.py  trader.py  evidence.py
     risk.py  logger.py  analyze.py  lifetime.py  compare.py  memory.py  review.py  config.py
   prompts/
     scoring.md  desk.md  review.md   # fixed instructions for Claude
@@ -235,8 +236,9 @@ for all time, plus the comparison).
 
 ## 10. Safety (non-negotiable)
 
-- `broker.py` builds the Alpaca client with `paper=True` and asserts the base URL contains
-  `paper-api`; anything else raises and exits.
+- `alpaca_backend.py` builds the Alpaca client with `paper=True` and asserts the base URL contains
+  `paper-api`; anything else raises and exits. Any execution backend on a live account is refused
+  unless `ALLOW_LIVE=1` (`broker.check_live`).
 - Setup and every job check that the account number differs from the paper-trader's account
   (`PAPER_TRADER_ACCOUNT` in `.env`, filled in by setup).
 - Credentials only from `.env` or the environment; never logged or printed.

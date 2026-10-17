@@ -269,7 +269,7 @@ def load_scores(day):
 def main(argv=None):
     import config
     import universe
-    from broker import make_broker
+    from broker import make_market_data
     from logger import Book, notify, setup_logging
 
     ap = argparse.ArgumentParser(description="daily sentiment scoring")
@@ -289,7 +289,7 @@ def main(argv=None):
     held = [r["symbol"] for r in holdings]
     broker = None
     try:
-        broker = make_broker(cfg, verify_account=False)
+        broker = make_market_data(cfg)
         log.info("news fetch before scoring: %d new articles", news.fetch(broker, symbols, now))
         if now.date() not in broker.trading_days(now.date(), now.date()):
             log.info("market closed today; not scoring, the next run covers this news")

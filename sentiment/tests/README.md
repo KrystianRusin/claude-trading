@@ -15,7 +15,8 @@ defaults, and moves the `HALT` file next to it.
 | File | Covers |
 |---|---|
 | `test_config.py` | Config bounds, data folder init, config upgrade, watchlist |
-| `test_broker.py` | Paper-only endpoint, separate-account check, bar and news conversion |
+| `test_broker.py` | Paper-only endpoint, `ALLOW_LIVE` gate, separate-account check, Alpaca status and error translation, backend selection (incl. the IBKR stub), bar and news conversion |
+| `test_broker_contract.py` | The contract every execution backend must pass: SimBroker, and Alpaca on the in-memory client in `fake_alpaca.py` |
 | `test_news.py` | Dedupe, date bucketing, fetch cursor, status |
 | `test_universe.py` | Liquidity screen, universe file, watchlist merge |
 | `test_score.py` | Symbol selection, batches, output validation, retries, prompt injection, score files, desk in the score file |
