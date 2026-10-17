@@ -195,8 +195,8 @@ def score_batch(model_input, prompt, caller, log=None):
 def score(now, universe, ucfg, priority=(), caller=call_claude, log=None, mem=None, desk=None):
     """Score the news since the previous run in batches. Returns the score file path.
 
-    `mem` is the lessons memory to append to the prompt; prompt_sha256 covers prompts/scoring.md and
-    memory_sha256 the lessons, so results can be split by either.
+    `mem` is the memory whose proven scoring entries are appended to the prompt; prompt_sha256 covers
+    prompts/scoring.md and memory_sha256 those entries, so results can be split by either.
 
     Symbols in a batch that fails twice are left out and listed in `failed_symbols`. Raises, writing
     nothing, when every batch fails. `desk(scores, articles)` returns the desk record; its failure

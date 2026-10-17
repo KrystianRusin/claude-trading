@@ -112,6 +112,11 @@ def daily_file(mode, day):
     return daily_dir(mode) / f"{day.isoformat()}.md"
 
 
+def journal_file(mode, day):
+    """The daily review's journal entry. Written once, never rewritten."""
+    return _report_root(mode) / "journal" / f"{day.isoformat()}.md"
+
+
 def lifetime_file(mode):
     return _report_root(mode) / "lifetime.md"
 

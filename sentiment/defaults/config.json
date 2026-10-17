@@ -12,7 +12,7 @@
   "pairs": {"max_pairs": 25, "formation_days": 250, "min_correlation": 0.7, "max_correlation": 0.97,
             "max_half_life_days": 20, "entry_z": 2.0, "exit_z": 0.5, "stop_z": 4.0, "max_hold_days": 10,
             "stop_atr_multiple": 3.0},
-  "memory": {"use_in_scoring": true, "min_new_outcomes": 20},
+  "memory": {"use_in_scoring": true},
   "data_feed": "iex",
   "timezone": "America/New_York"
 }

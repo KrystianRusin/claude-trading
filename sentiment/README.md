@@ -62,8 +62,8 @@ scripts/positions.sh
 8. `trader.py close` (16:15) records fills and stop-outs, marks positions to market, checks the
    daily loss limit and writes the daily summary.
 9. `analyze.py` and `lifetime.py` (18:30) write the daily file and the lifetime file.
-10. `review.py` (Fridays 19:45) gives Claude the week's evidence and has it update its lessons
-    memory, which the next scoring runs read.
+10. `review.py` (weekdays 19:45) has Claude write the day's journal and update its memory of
+    hypotheses. Entries that pass the evidence test reach the next scoring runs.
 
 Claude never places orders, edits code or config, or writes files. It only prints scores and ideas.
 
@@ -100,7 +100,7 @@ logged or printed.
 | 16:15 weekdays | `trader.py close` |
 | 18:30 weekdays | `analyze.py`, `lifetime.py`, `compare.py` |
 | 19:15 weekdays | `universe.py build`, then the pairs |
-| 19:45 Fridays | `review.py run` |
+| 19:45 weekdays | `review.py run`: journal and memory |
 | 03:00 daily | `scripts/backup.sh` |
 | Every 5 min | `scripts/deploy.sh`: ships new commits on `origin/main` once CI passes |
 
@@ -195,22 +195,55 @@ both books read the same way and can be aggregated by one tool.
 stock's return from that day's open to the open `max_hold_days` trading days later. With up to 60
 scores a day, this answers "do the scores carry information?" much sooner than the trades alone can.
 
-## Memory and the weekly review
+## Journal, memory and hypotheses
 
-Every Friday `review.py` sends Claude (Sonnet, no tools) the lifetime stats, the calibration of
-scores whose outcome is new since the last review, and the most instructive examples: the biggest
-moves with a score, against a score, and on a score of 0, each with its reason and headlines.
-Claude replies with JSON only: up to 12 lessons, each with its evidence and a confidence, plus
-"working" and "not working" lists. Python validates the reply and writes `data/memory/memory.md`;
-an invalid reply leaves the old memory in place. The review is skipped until at least
-`memory.min_new_outcomes` new outcomes exist.
+The learning loop works the same way as the paper-trader's, but Python enforces every rule, because
+Claude here has no tools and only returns JSON.
 
-Scoring appends the lessons to `prompts/scoring.md` as advisory notes. Each score file and trade
-records `memory_sha256`, so the reports show results per memory version. Set
-`memory.use_in_scoring` to `false` in `data/config.json` to score without the lessons.
+Every weekday at 19:45, `review.py` sends Claude (Sonnet, no tools):
+- today's day report
+- every active memory entry with its latest evidence check
+- lifetime stats
+- the calibration of scores whose outcome is new
+- the most instructive examples: the biggest moves with a score, against a score, and on a score of 0
 
-The lessons only cover how to read news. Claude still cannot change the trading rules, the config
-or any file.
+Claude replies with a **journal** and a list of **memory operations**. Python validates both, then:
+
+- writes `data/journal/<date>.md` (market, result, what went well, what went wrong, luck versus
+  logic, execution, memory updates). It is written once; a second run that day does nothing.
+- applies the operations to `data/memory/` (`memory.md` to read, `memory.json`, every version in
+  `history/`):
+  - `add` a hypothesis, `update` its evidence, implication or query, `retire` it with a reason
+  - entries are never deleted, ids are never reused, at most 40 are active
+  - an invalid reply leaves everything unchanged
+
+**Claude never sets a status.** Each entry can carry a query, which `src/evidence.py` tests:
+
+    scores: score >= 1 and reason contains "guidance"
+    trades: side == short and hold_days >= 3
+
+`scores` holds every non-zero score whose forward window completed, tested on the signed forward
+return. `trades` holds closed trades, tested on R. The test needs enough rows over enough days, a
+95% range that excludes zero (rows grouped by day), and enough rows **after the entry was
+registered** pointing the same way. Only later outcomes count, so a hypothesis cannot be fitted to
+the data it came from.
+
+The status follows the evidence, and falls back if later evidence fails:
+- `hypothesis` until the query passes
+- `supported` once it passes
+- `confirmed` with twice the sample
+- an entry without a query stays a hypothesis
+
+Only supported and confirmed `scoring` entries are appended to `prompts/scoring.md`. A hypothesis
+under test therefore never changes the scores that test it. Each score file and trade records
+`memory_sha256`, the hash of the entries that reached the prompt, so the reports show results per
+memory version. Set `memory.use_in_scoring` to `false` in `data/config.json` to score without them.
+
+A memory written by the old weekly review converts on first load: each lesson becomes a hypothesis
+without a query, and the old file stays in `history/`.
+
+Memory covers reading news, the desk's ideas and how trades turn out. Claude still cannot change
+the trading rules, the config or any file.
 
 ## Stopping
 
@@ -235,7 +268,7 @@ the news scores only.
 | Path | What |
 |---|---|
 | `src/` | All Python code; every command runs as `.venv/bin/python src/<name>.py` |
-| `prompts/` | Fixed instructions for scoring, the desk and the weekly review |
+| `prompts/` | Fixed instructions for scoring, the desk and the daily review |
 | `defaults/` | Config and watchlist copied into `data/` once, and the config's hard limits |
 | `scripts/` | `positions.sh`, `setup.sh`, nightly `backup.sh`, and `migrate.sh` for an old `state/` folder |
 | `tests/` | Test suite, see [tests/README.md](tests/README.md) |
@@ -252,7 +285,8 @@ Inside `data/`:
 | `news/`, `scores/`, `bars/` | News archive, score files with the desk's ideas, cached daily bars |
 | `books/paper/` | `trades.csv`, `orders.csv`, `positions.csv`, `daily_summary.csv` |
 | `books/dry_run/`, `books/replay/` | Simulated books, with their own reports |
-| `memory/` | Claude's current lessons (`memory.md`, `memory.json`) and every version in `history/` |
+| `memory/` | Claude's memory entries (`memory.md`, `memory.json`) and every version in `history/` |
+| `journal/` | The daily review's journal, one file per trading day, never rewritten |
 | `logs/` | `cron.log` (all cron output) and `sentiment.log` (warnings and errors with tracebacks) |
 | `backups/` | The last 30 nightly archives of `data/` |
 

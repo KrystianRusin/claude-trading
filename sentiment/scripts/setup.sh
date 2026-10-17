@@ -171,7 +171,7 @@ Schedule (local time, Eastern):
   trader close 16:15 weekdays
   reports      18:30 weekdays (data/daily/<date>.md and data/lifetime.md)
   universe     19:15 weekdays (data/universe.json, then data/pairs.json)
-  review       19:45 Fridays (data/memory/memory.md)
+  review       19:45 weekdays (data/journal/<date>.md, data/memory/memory.md)
   backup       03:00 daily (data/backups/)
   deploy       every 5 min: new commits on origin/main ship once CI passes (data/logs/deploy.log)
 

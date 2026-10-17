@@ -25,4 +25,4 @@ defaults, and moves the `HALT` file next to it.
 | `test_rules.py` | Entry signals, hold days, exit reasons, candidates from scores and ideas, ranking, entry planning, pairs both-or-neither |
 | `test_trader.py` | Run and close jobs, restart reconciliation, kill switch, loss limit, replay, pair entries and exits |
 | `test_analytics.py` | Paper-trader column parity, trade rows, R ranges, report, day report, holdings, comparison |
-| `test_memory.py` | Score calibration, lifetime layout, review validation, memory in scoring |
+| `test_memory.py` | Score calibration, lifetime layout, evidence queries and the registration cutoff, memory ops, status from evidence, prompt filtering, old-memory conversion, daily journal |

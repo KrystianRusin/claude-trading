@@ -26,7 +26,7 @@ lines="*/30 7-20 * * 1-5 $RUN $PY src/news.py fetch >> $LOG 2>&1 $CRON_TAG
 15 16 * * 1-5 $RUN $PY src/trader.py close >> $LOG 2>&1 $CRON_TAG
 30 18 * * 1-5 $RUN sh -c \"$PY src/analyze.py; $PY src/lifetime.py; $PY src/compare.py\" >> $LOG 2>&1 $CRON_TAG
 15 19 * * 1-5 $RUN $PY src/universe.py build >> $LOG 2>&1 $CRON_TAG
-45 19 * * 5 . $SECRETS; $RUN $PY src/review.py run >> $LOG 2>&1 $CRON_TAG
+45 19 * * 1-5 . $SECRETS; $RUN $PY src/review.py run >> $LOG 2>&1 $CRON_TAG
 0 3 * * * $RUN $REPO/scripts/backup.sh >> $LOG 2>&1 $CRON_TAG
 */5 * * * * $REPO/scripts/deploy.sh >> $REPO/data/logs/deploy.log 2>&1 $CRON_TAG"
 

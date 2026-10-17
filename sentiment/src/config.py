@@ -11,7 +11,7 @@ import paths
 
 SYMBOL_RE = re.compile(r"^[A-Z][A-Z.]{0,5}$")
 TIME_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
-RETIRED_KEYS = ("mode", "risk.max_positions")
+RETIRED_KEYS = ("mode", "risk.max_positions", "memory.min_new_outcomes")
 
 
 class ConfigError(RuntimeError):

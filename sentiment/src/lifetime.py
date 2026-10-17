@@ -2,7 +2,7 @@
 
     python src/lifetime.py [--book paper|dry_run|replay] [--no-baseline]
 
-Writes data/lifetime.md to read and data/lifetime.json for the weekly review (inside the book's
+Writes data/lifetime.md to read and data/lifetime.json for the daily review (inside the book's
 folder for dry-run and replay). After the paper-trader's sections it adds the sentiment-specific
 ones: by strategy, score, confidence and memory version; score calibration: for every score in every
 score file (traded or not), the stock's return from that day's open to the open `max_hold_days`
@@ -76,7 +76,8 @@ def read_score_files():
 
 
 def score_outcomes(records, bars, horizon):
-    """One row per score whose `horizon`-day window has completed: date, symbol, score, confidence, fwd_return."""
+    """One row per score whose `horizon`-day window has completed: date, symbol, score, confidence, fwd_return,
+    plus the number of cited articles and the reason (for memory hypotheses)."""
     rows = []
     for rec in records:
         day = pd.Timestamp(rec["date"]).date()
@@ -90,8 +91,10 @@ def score_outcomes(records, bars, horizon):
             fwd = float(df["open"].iloc[i + horizon]) / float(df["open"].iloc[i]) - 1
             rows.append({"date": day, "symbol": sym, "score": int(entry["score"]),
                          "confidence": float(entry["confidence"]), "memory_sha256": rec.get("memory_sha256", ""),
-                         "fwd_return": fwd})
-    return pd.DataFrame(rows, columns=["date", "symbol", "score", "confidence", "memory_sha256", "fwd_return"])
+                         "fwd_return": fwd, "articles": len(entry.get("article_ids", [])),
+                         "reason": entry.get("reason", "")})
+    return pd.DataFrame(rows, columns=["date", "symbol", "score", "confidence", "memory_sha256", "fwd_return",
+                                       "articles", "reason"])
 
 
 def calibration(outcomes):
