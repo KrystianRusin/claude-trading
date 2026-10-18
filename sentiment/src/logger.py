@@ -1,14 +1,17 @@
-"""CSV books (trades, orders, positions, daily summary), the error log and ntfy alerts."""
+"""CSV books (trades, orders, positions, daily summary; mirrored into trader.db, see db.py), the error log and
+ntfy alerts."""
 import csv
 import json
 import logging
 import os
 import urllib.request
 from datetime import datetime
+from pathlib import Path
 
 import pandas as pd
 from dotenv import load_dotenv
 
+import db
 import paths
 
 STRATEGY = "sentiment_swing"
@@ -106,6 +109,10 @@ class Book:
         self.positions_path = self.dir / "positions.csv"
         self.summary_path = self.dir / "daily_summary.csv"
         self.state_path = self.dir / "book_state.json"
+        if Path(directory) == paths.book_dir(mode):  # the standard books share data/trader.db
+            self.db = db.Mirror(paths.db_file(), mode, [(b, paths.book_dir(b)) for b in paths.BOOK_MODES])
+        else:
+            self.db = db.Mirror(Path(directory) / db.DB_NAME, mode)
 
     def positions(self):
         return _read(self.positions_path)
@@ -119,6 +126,7 @@ class Book:
         if any((r["symbol"], r["side"], r["entry_date"]) == key for r in _read(self.trades_path)):
             return False
         _append(self.trades_path, TRADE_FIELDS, row)
+        self.db.trade({k: row.get(k, "") for k in TRADE_FIELDS})
         return True
 
     def trades(self):
@@ -128,6 +136,7 @@ class Book:
         row = {"timestamp": now.isoformat(timespec="seconds"), "date": now.date().isoformat(), "mode": self.mode,
                "event": event, "symbol": symbol, **fields}
         _append(self.orders_path, ORDER_FIELDS, row)
+        self.db.order_event({k: row.get(k, "") for k in ORDER_FIELDS})
 
     def order_events(self, day=None):
         return [r for r in _read(self.orders_path) if day is None or r["date"] == day.isoformat()]
@@ -136,6 +145,7 @@ class Book:
         """Write the summary row for row['date'], replacing any earlier row for that date."""
         rows = [r for r in _read(self.summary_path) if r["date"] != row["date"]] + [row]
         _write(self.summary_path, SUMMARY_FIELDS, sorted(rows, key=lambda r: r["date"]))
+        self.db.summary({k: row.get(k, "") for k in SUMMARY_FIELDS})
 
     def summaries(self):
         return _read(self.summary_path)
@@ -149,6 +159,7 @@ class Book:
     def clear(self):
         for p in (self.trades_path, self.orders_path, self.positions_path, self.summary_path, self.state_path):
             p.unlink(missing_ok=True)
+        self.db.clear()
 
 
 def read_trades_frame(path):

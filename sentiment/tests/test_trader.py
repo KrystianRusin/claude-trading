@@ -292,3 +292,15 @@ def test_pair_exits_after_its_max_hold_days(pair_env):
     assert len(env.rows()) == 2
     env.day(DAYS[50])
     assert env.rows() == {} and {t["exit_reason"] for t in env.book.trades()} == {"time"}
+
+
+def test_jobs_mirror_every_write_into_the_database(env):
+    import db
+
+    write_scores(D0, AAPL=(2, 0.9), NKE=(-2, 0.8))
+    env.day(D0)
+    write_scores(DAYS[41], AAPL=(-2, 0.9))  # flips AAPL: an exit and a closed trade
+    env.day(DAYS[41])
+    conn = db.connect(paths.db_file())
+    assert db.compare(conn, "dry_run", *db.csv_rows(env.book.dir)) == []
+    assert conn.execute("SELECT COUNT(*) FROM trades WHERE book = 'dry_run'").fetchone()[0] >= 1

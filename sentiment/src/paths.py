@@ -84,6 +84,15 @@ def log_file():
     return logs_dir() / "sentiment.log"
 
 
+def db_file():
+    """SQLite database holding every book (see db.py)."""
+    return data_dir() / "trader.db"
+
+
+def backups_dir():
+    return data_dir() / "backups"
+
+
 def lock_file():
     return data_dir() / "trader.lock"
 

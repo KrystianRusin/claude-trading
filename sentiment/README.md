@@ -264,6 +264,29 @@ the news scores only.
 - Client order ids are `st-<YYYYMMDD>-<SYMBOL>-<entry|exit|stop>`, so re-running a job never
   double-submits. Each job reconciles `positions.csv` with the account on start.
 
+## Database
+
+Every book's trades, order events and daily summaries are also written to SQLite, `data/trader.db`,
+in one database told apart by the `book` column (`paper`, `dry_run`, `replay`). It is the source
+for the dashboard (`claude-desk`), which opens it read-only next to the paper-trader's database.
+
+- **Dual-write phase:** the CSV files are still the source of truth and every write is mirrored
+  into the database. A database error is logged and never stops trading. The write that creates
+  the database imports every book's CSV history first.
+- `migrations/` holds numbered SQL files applied in order (`meta.schema_version`).
+  `001_core.sql` is the schema shared with claude-quant, byte-identical in both repos (a test pins
+  its hash). This repo's own migrations are numbered 100 to 199. Migrations only ever add.
+- Deploys back up the database before updating, run `src/db.py migrate` in the checks, and restore
+  the copy if they roll back. The nightly `backup.sh` archives a consistent copy, made with
+  SQLite's backup API, as `data/trader.db`.
+
+```bash
+.venv/bin/python src/db.py check            # CSV and database agree?
+.venv/bin/python src/db.py import           # rebuild the database rows from the CSVs
+.venv/bin/python src/db.py backup DEST
+.venv/bin/python src/db.py restore DEST
+```
+
 ## Broker backends
 
 `src/broker.py` defines the broker-neutral interface and nothing Alpaca-specific. A backend fills
@@ -324,6 +347,7 @@ Inside `data/`:
 | `memory/` | Claude's memory entries (`memory.md`, `memory.json`) and every version in `history/` |
 | `journal/` | The daily review's journal, one file per trading day, never rewritten |
 | `logs/` | `cron.log` (all cron output) and `sentiment.log` (warnings and errors with tracebacks) |
+| `trader.db` | SQLite copy of every book's trades, orders and daily summaries, see Database |
 | `backups/` | The last 30 nightly archives of `data/` |
 
 To move an old `state/` folder into this layout, run `scripts/migrate.sh`, then `scripts/setup.sh`

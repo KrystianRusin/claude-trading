@@ -43,7 +43,7 @@ sentiment-trader/
   src/                    # all Python modules, run as python src/<name>.py
     paths.py              # every data path in one place; DATA_DIR overridable for tests
     broker.py  alpaca_backend.py  ibkr_backend.py  simbroker.py  news.py  universe.py  pairs.py
-    score.py  desk.py  trader.py  evidence.py
+    score.py  desk.py  trader.py  evidence.py  db.py
     risk.py  logger.py  analyze.py  lifetime.py  compare.py  memory.py  review.py  config.py
   prompts/
     scoring.md  desk.md  review.md   # fixed instructions for Claude
