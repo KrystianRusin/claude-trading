@@ -304,3 +304,47 @@ def test_jobs_mirror_every_write_into_the_database(env):
     conn = db.connect(paths.db_file())
     assert db.compare(conn, "dry_run", *db.csv_rows(env.book.dir)) == []
     assert conn.execute("SELECT COUNT(*) FROM trades WHERE book = 'dry_run'").fetchone()[0] >= 1
+
+
+def test_snapshot_records_equity_positions_and_orders_closed_since(env):
+    import db
+
+    write_scores(D0, AAPL=(2, 0.9))
+    env.day(D0)
+    conn = db.connect(paths.db_file())
+    row = env.rows()["AAPL"]
+    stop = conn.execute("SELECT * FROM orders WHERE order_id = ?", (row["stop_order_id"],)).fetchone()
+    assert (stop["status"], stop["parent_order_id"], stop["stop_price"]) == ("new", row["entry_order_id"], 96.0)
+    entry = conn.execute("SELECT * FROM orders WHERE order_id = ?", (row["entry_order_id"],)).fetchone()
+    assert (entry["status"], entry["filled_qty"], entry["book"]) == ("filled", 50, "dry_run")
+    [at_close] = conn.execute("SELECT * FROM equity_snapshots").fetchall()  # written by the close job
+    assert at_close["ts"] == datetime.combine(D0, time(16, 15), ET).isoformat() and at_close["positions"] == 1
+    held = conn.execute("SELECT * FROM position_snapshots").fetchone()
+    assert (held["symbol"], held["qty"], held["price"], held["market_value"]) == ("AAPL", 50, 100.0, 5000.0)
+
+    env.bars["AAPL"].loc[DAYS[41], ["open", "low"]] = [99.0, 90.0]
+    env.data.set(DAYS[41], "close")
+    env.sim.on_close(DAYS[41])  # the stop fills during the day, between two snapshots
+    now = datetime.combine(DAYS[41], time(15, 2), ET)
+    trader.Trader(env.sim, env.cfg, env.book, now, LOG).snapshot()
+    stop = conn.execute("SELECT * FROM orders WHERE order_id = ?", (row["stop_order_id"],)).fetchone()
+    assert (stop["status"], stop["filled_avg_price"], stop["updated_at"]) == ("filled", 96.0, now.isoformat())
+    assert stop["parent_order_id"] == row["entry_order_id"]  # kept when the leg is fetched on its own
+    last = conn.execute("SELECT * FROM equity_snapshots ORDER BY ts DESC").fetchone()
+    assert (last["ts"], last["positions"], last["long_value"]) == (now.isoformat(), 0, 0)
+    assert last["equity"] == pytest.approx(at_close["equity"] - 200)
+    assert env.book.trades() == []  # read-only: the CSV books wait for the close job
+
+
+def test_snapshot_cli_runs_beside_a_trader_job(env, monkeypatch):
+    import broker
+    import db
+
+    write_scores(D0, AAPL=(2, 0.9))
+    env.day(D0)
+    monkeypatch.setattr(broker, "make_broker", lambda cfg, verify_account=True: env.sim)
+    with trader.job_lock(paths.lock_file()):
+        assert trader.main(["snapshot", "--force"]) == 0
+    conn = db.connect(paths.db_file())
+    [snap] = conn.execute("SELECT * FROM equity_snapshots WHERE book = 'paper'").fetchall()
+    assert snap["positions"] == 1

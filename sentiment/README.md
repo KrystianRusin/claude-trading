@@ -97,6 +97,7 @@ logged or printed.
 | 10:00 and 18:00 weekends | `news.py fetch` |
 | 06:30 weekdays | `score.py run`: news scores, then the desk's ideas (skips market holidays) |
 | 09:45 weekdays | `trader.py run` |
+| Every 5 min, 09:32-15:57 weekdays | `trader.py snapshot`: equity, positions and order states into `trader.db` |
 | 16:15 weekdays | `trader.py close` |
 | 18:30 weekdays | `analyze.py`, `lifetime.py`, `compare.py` |
 | 19:15 weekdays | `universe.py build`, then the pairs |
@@ -126,7 +127,8 @@ like the Pi). The Pi pulls changes; GitHub never pushes to it (no inbound access
   or local changes, because the checkout should always equal `origin/main`.
 - Every scheduled job runs through `scripts/job.sh`, which holds a shared lock on `data/deploy.lock`.
   A deploy only starts when no job holds it, and a job that starts during a deploy waits for it. So
-  code never changes under a running trading session or review.
+  code never changes under a running trading session or review. `job.sh` also records each job in
+  the `runs` table of `data/trader.db` (see Database), and every deploy is recorded there too.
 - `data/` is never touched beyond what the checks do (merging new config keys), so Claude's state
   survives every deploy.
 
@@ -159,6 +161,9 @@ without waiting for CI. Logs: `data/logs/deploy.log`, plus the output of the las
 - `trader.py run | close [--dry-run] [--force]`: `--force` ignores the calendar and run time.
 - `trader.py positions [--dry-run]`: current holdings at live prices, with today's entries and
   closed trades. Read-only, safe at any time.
+- `trader.py snapshot [--dry-run] [--force]`: write the account equity, the positions and the state
+  of every order that was open into `trader.db`. Read-only at the broker and outside the job lock,
+  so it runs beside the other jobs.
 - `trader.py replay --from DATE --to DATE`: reruns the rules over saved score files and daily bars
   into `data/books/replay/`, with simulated fills at the open and stops checked against daily bars.
 - `analyze.py [--day DATE]`: write the daily file. `--report [--since DATE] [--config-version N]`
@@ -280,11 +285,23 @@ for the dashboard (`claude-desk`), which opens it read-only next to the paper-tr
   the copy if they roll back. The nightly `backup.sh` archives a consistent copy, made with
   SQLite's backup API, as `data/trader.db`.
 
+Facts the dashboard needs that no CSV holds (`002_dashboard.sql`, also shared with claude-quant):
+
+| Table | Written by |
+|---|---|
+| `equity_snapshots`, `position_snapshots` | `trader.py snapshot` every 5 minutes in market hours, and `trader.py close` |
+| `orders` | The latest state of each order, whenever a job sees it change (`order_events` keeps the history) |
+| `runs` | `scripts/job.sh` for every cron job (`running`, `ok`, `failed`, or `lost` when it died without reporting back, with the end of its output as the error), and `deploy.sh` for every deploy |
+| `versions` | The config, watchlist, prompts and memory entries, one row each time one changes: on a config upgrade, a memory save, a scoring run and a deploy. `version` is what trades carry (`config_version`, `prompt_sha256`, `memory_sha256`) |
+
+`src/db.py import` rebuilds only the CSV tables and leaves these alone.
+
 ```bash
 .venv/bin/python src/db.py check            # CSV and database agree?
 .venv/bin/python src/db.py import           # rebuild the database rows from the CSVs
 .venv/bin/python src/db.py backup DEST
 .venv/bin/python src/db.py restore DEST
+.venv/bin/python src/db.py versions         # record the config, prompts and memory if they changed
 ```
 
 ## Broker backends
@@ -347,7 +364,7 @@ Inside `data/`:
 | `memory/` | Claude's memory entries (`memory.md`, `memory.json`) and every version in `history/` |
 | `journal/` | The daily review's journal, one file per trading day, never rewritten |
 | `logs/` | `cron.log` (all cron output) and `sentiment.log` (warnings and errors with tracebacks) |
-| `trader.db` | SQLite copy of every book's trades, orders and daily summaries, see Database |
+| `trader.db` | SQLite: every book's trades, orders and daily summaries, plus snapshots, runs and versions, see Database |
 | `backups/` | The last 30 nightly archives of `data/` |
 
 To move an old `state/` folder into this layout, run `scripts/migrate.sh`, then `scripts/setup.sh`

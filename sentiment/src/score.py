@@ -24,6 +24,7 @@ from collections import Counter
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+import db
 import memory
 import news
 import paths
@@ -304,6 +305,7 @@ def main(argv=None):
         log.exception("scoring failed")
         notify(f"scoring failed, no entries today: {e}")
         return 1
+    db.note_versions("score")  # a prompt edit shipped by a deploy, or memory that reached the prompt
     record = json.loads(path.read_text(encoding="utf-8"))
     nonzero = {s: v["score"] for s, v in record["scores"].items() if v["score"]}
     log.info("wrote %s: %d of %d symbols with news scored from %d articles, non-zero %s", path.name,

@@ -14,6 +14,7 @@ import hashlib
 import json
 from datetime import date
 
+import db
 import evidence
 import paths
 
@@ -234,7 +235,7 @@ def render(mem):
 
 
 def save(mem):
-    """Write the memory, its readable copy and a history snapshot."""
+    """Write the memory, its readable copy and a history snapshot, and record the version in trader.db."""
     mem = mem | {"memory_sha256": sha256(mem)}
     paths.memory_history_dir().mkdir(parents=True, exist_ok=True)
     paths.memory_json().write_text(json.dumps(mem, indent=1, ensure_ascii=False), encoding="utf-8")
@@ -242,4 +243,5 @@ def save(mem):
     stamp = (mem.get("updated_at") or "")[:19].replace(":", "")
     (paths.memory_history_dir() / f"{stamp}.json").write_text(json.dumps(mem, indent=1, ensure_ascii=False),
                                                               encoding="utf-8")
+    db.note_versions("memory save")
     return mem

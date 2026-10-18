@@ -68,6 +68,7 @@ data/                     # git-ignored
   books/paper/  trades.csv  orders.csv  positions.csv  daily_summary.csv
   books/<dry_run|replay>/   # simulated books, with their own daily/ and lifetime.md
   logs/  cron.log  sentiment.log
+  trader.db               # SQLite: the books, plus snapshots, order states, runs and versions
   backups/                # nightly archives of data/
 ```
 
@@ -268,6 +269,7 @@ Run once on the Pi from the repo root; safe to re-run, every step skips what is 
    0 10,18 * * 0,6     news fetch (weekends)
    30 6 * * 1-5        score
    45 9 * * 1-5        trader run      (exits early on holidays)
+   */5 9:32-15:57      trader snapshot (read-only; equity, positions, orders into trader.db)
    15 16 * * 1-5       trader close
    30 18 * * 1-5       analyze + compare
    0 3 * * *           backup

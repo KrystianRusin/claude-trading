@@ -7,6 +7,7 @@ import re
 import shutil
 import sys
 
+import db
 import paths
 
 SYMBOL_RE = re.compile(r"^[A-Z][A-Z.]{0,5}$")
@@ -117,6 +118,8 @@ def upgrade(path, cfg):
         new["version"] = max(cfg.get("version", 1), default["version"])
     if new != cfg:
         path.write_text(json.dumps(new, indent=2) + "\n", encoding="utf-8")
+        if path == paths.config_file():
+            db.note_versions("config upgrade")
     return new
 
 

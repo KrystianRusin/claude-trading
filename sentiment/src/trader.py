@@ -4,6 +4,8 @@
     python src/trader.py close [--dry-run] [--force]    16:15: fills, stop-outs, marks, daily summary
     python src/trader.py replay --from DATE --to DATE   rerun the rules over saved score files and daily bars
     python src/trader.py positions [--dry-run]           current holdings at live prices (read-only)
+    python src/trader.py snapshot [--dry-run] [--force]  equity, positions and order states into the database
+                                                         (read-only at the broker; cron every 5 minutes)
 
 A file named HALT in the repo root makes every job place no entries and close all positions.
 """
@@ -184,7 +186,19 @@ class Trader:
     def event(self, event, symbol="", **fields):
         self.book.order_event(self.now, event, symbol, **fields)
 
+    def seen(self, order):
+        """Record an order's current state in the database (orders table); returns the order."""
+        self.book.order_state(self.now, order)
+        return order
+
+    def get_order(self, order_id):
+        return self.seen(self.broker.get_order(order_id))
+
+    def open_orders(self):
+        return [self.seen(o) for o in self.broker.open_orders()]
+
     def order_event(self, event, order, reason="", price=None):
+        self.seen(order)
         self.event(event, order.symbol, side=order.side, qty=order.qty, order_type=order.order_type,
                    price=price if price is not None else (order.filled_avg_price or ""),
                    stop_price=order.stop_price or "", order_id=order.id, client_order_id=order.client_order_id,
@@ -203,7 +217,7 @@ class Trader:
         for row in rows:
             pos = positions.get(row["symbol"])
             if row["status"] == "pending" and not pos:
-                o = self.broker.get_order(row["entry_order_id"])
+                o = self.get_order(row["entry_order_id"])
                 if o.is_open:
                     kept.append(row)
                     continue
@@ -214,7 +228,7 @@ class Trader:
                            entry_time=_iso(o.filled_at or self.now))
             if pos:
                 if row["status"] == "pending":
-                    o = self.broker.get_order(row["entry_order_id"])
+                    o = self.get_order(row["entry_order_id"])
                     self.order_event("fill", o)
                     row.update(status="open", entry_time=_iso(o.filled_at or self.now))
                     if o.legs and not row["stop_order_id"]:
@@ -224,7 +238,7 @@ class Trader:
             else:
                 self._record_closed(row)
         known = {r["symbol"] for r in kept}
-        stops = {o.symbol: o for o in self.broker.open_orders() if o.order_type == "stop"}
+        stops = {o.symbol: o for o in self.open_orders() if o.order_type == "stop"}
         for sym, pos in positions.items():
             if sym not in known:
                 self.log.warning("adopting %s position found in the account but not in positions.csv", sym)
@@ -244,7 +258,7 @@ class Trader:
         for oid, why in ((row.get("exit_order_id"), reason), (row.get("stop_order_id"), "sl")):
             if not oid or exit_price is not None:
                 continue
-            o = self.broker.get_order(oid)
+            o = self.get_order(oid)
             if o.status == FILLED:
                 exit_price, reason = o.filled_avg_price, why
                 exit_time = o.filled_at or self.now
@@ -263,7 +277,7 @@ class Trader:
             if row["status"] != "open":
                 continue
             if row.get("stop_order_id"):
-                o = self.broker.get_order(row["stop_order_id"])
+                o = self.get_order(row["stop_order_id"])
                 if o.is_open or o.status == FILLED:
                     continue
             if not row.get("stop_price"):
@@ -322,7 +336,7 @@ class Trader:
     def close_all(self, reason):
         for row in self.rows:
             self.exit_position(row, reason)
-        for o in self.broker.open_orders():
+        for o in self.open_orders():
             if o.order_type == "stop" and not any(r.get("stop_order_id") == o.id for r in self.rows):
                 self.order_event("cancel", self.broker.cancel_order(o.id), reason=reason)
 
@@ -508,9 +522,20 @@ class Trader:
             "net_exposure": round(net, 2),
             "entries": sum(1 for e in events if e["event"] == "submit" and e["client_order_id"].endswith("-entry")),
             "scored": self.load_scores(self.today) is not None})
+        self.book.snapshot(self.now, self.broker.get_account().equity, self.broker.list_positions())
         self.log.info("close done: equity %.2f, day P&L %+.2f (realized %+.2f), %d positions, gross %.1f%%, net %.1f%%; "
                       "summary in %s", acct.equity, acct.equity - acct.last_equity, realized, len(values), gross, net,
                       self.book.summary_path)
+
+    def snapshot(self, force=False):
+        """Equity and positions into the database, and the final state of orders that were open last time."""
+        if not force and self.today not in self.calendar():
+            self.log.info("market closed today; nothing to do (--force runs anyway)")
+            return
+        self.book.snapshot(self.now, self.broker.get_account().equity, self.broker.list_positions())
+        still_open = {o.id for o in self.open_orders()}
+        for order_id in sorted(set(self.book.open_order_ids()) - still_open):
+            self.get_order(order_id)
 
     def mark_to_market(self):
         held = [r["symbol"] for r in self.rows if r["status"] != "pending"]
@@ -611,7 +636,7 @@ def main(argv=None):
     from simbroker import SimBroker
 
     ap = argparse.ArgumentParser(description="sentiment swing trader")
-    ap.add_argument("command", choices=["run", "close", "replay", "positions"])
+    ap.add_argument("command", choices=["run", "close", "replay", "positions", "snapshot"])
     ap.add_argument("--dry-run", action="store_true", help="simulated fills instead of paper orders")
     ap.add_argument("--force", action="store_true", help="ignore the calendar and run time checks")
     ap.add_argument("--from", dest="start", type=date.fromisoformat)
@@ -641,6 +666,12 @@ def main(argv=None):
         if args.command == "positions":
             print(show_positions(make_broker(cfg, verify_account=False), Book(paths.book_dir(mode), mode)))
             return 0
+        if args.command == "snapshot":  # read-only at the broker, so it runs beside the other jobs
+            book = Book(paths.book_dir(mode), mode)
+            real = make_broker(cfg, verify_account=False)
+            broker = SimBroker(real, book.dir / "sim_account.json") if mode == "dry_run" else real
+            Trader(broker, cfg, book, datetime.now(ET), log).snapshot(force=args.force)
+            return 0
         with job_lock(paths.lock_file()):
             real = make_broker(cfg)
             book = Book(paths.book_dir(mode), mode)
@@ -650,7 +681,8 @@ def main(argv=None):
             getattr(t, args.command)(force=args.force)
     except Exception as e:
         log.exception("trader %s failed", args.command)
-        notify(f"trader {args.command} failed: {e}")
+        if args.command != "snapshot":  # every 5 minutes; the runs table shows its failures
+            notify(f"trader {args.command} failed: {e}")
         return 1
     return 0
 
