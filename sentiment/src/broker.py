@@ -28,6 +28,7 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 from dotenv import load_dotenv
 
+import db
 import paths
 
 ET = ZoneInfo("America/New_York")
@@ -335,7 +336,9 @@ def make_broker(cfg, verify_account=True):
 
 
 def load_bars(symbols, start, end, broker=None):
-    """Daily bars from the cache in data/bars/, fetching and saving missing ranges when a data source is given."""
+    """Daily bars from the cache in data/bars/, fetching and saving missing ranges when a data source is given.
+
+    Newly fetched bars are also written to the bars table of data/trader.db."""
     paths.bars_dir().mkdir(parents=True, exist_ok=True)
     out = {}
     missing = []
@@ -357,6 +360,7 @@ def load_bars(symbols, start, end, broker=None):
             merged = merged[~merged.index.duplicated(keep="last")].sort_index()
             merged.to_csv(paths.bars_dir() / f"{s}.csv", index_label="date")
             out[s] = merged
+        db.note_bars(fetched)  # for the dashboard's charts
     return {s: df[(df.index >= start) & (df.index <= end)] for s, df in out.items() if df is not None}
 
 

@@ -102,6 +102,7 @@ logged or printed.
 | 18:30 weekdays | `analyze.py`, `lifetime.py`, `compare.py` |
 | 19:15 weekdays | `universe.py build`, then the pairs |
 | 19:45 weekdays | `review.py run`: journal and memory |
+| 02:50 daily | `src/db.py purge`: retention rules for bars, snapshots and runs |
 | 03:00 daily | `scripts/backup.sh` |
 | Every 5 min | `scripts/deploy.sh`: ships new commits on `origin/main` once CI passes |
 
@@ -294,7 +295,17 @@ Facts the dashboard needs that no CSV holds (`002_dashboard.sql`, also shared wi
 | `runs` | `scripts/job.sh` for every cron job (`running`, `ok`, `failed`, or `lost` when it died without reporting back, with the end of its output as the error), and `deploy.sh` for every deploy |
 | `versions` | The config, watchlist, prompts and memory entries, one row each time one changes: on a config upgrade, a memory save, a scoring run and a deploy. `version` is what trades carry (`config_version`, `prompt_sha256`, `memory_sha256`) |
 
-`src/db.py import` rebuilds only the CSV tables and leaves these alone.
+| `bars` | Daily bars, copied from the bar cache in `data/bars/` whenever it saves new ones (`003_bars.sql`), so the dashboard draws charts without calling Alpaca. `migrate` and `import` copy in the existing cache |
+
+`src/db.py import` rebuilds only the CSV tables, plus the bars from the cache, and leaves the rest alone.
+
+**Retention.** `purge` runs at 02:50 each night. It never deletes trades, order events, daily summaries, orders or versions. It deletes:
+- 1-minute bars older than 90 days, except on days a trade held the symbol;
+- daily bars older than 2 years, except from 90 days before to 30 days after a trade;
+- intraday snapshots older than 90 days, keeping the last one of each day;
+- runs older than 90 days that ended ok (failed and lost runs are kept).
+
+The rules are constants at the top of the retention section in `src/db.py`. Nightly backups leave the bars out; the copy a deploy makes keeps them. After a restore, `src/db.py import` fills the bars back in from the bar cache.
 
 ```bash
 .venv/bin/python src/db.py check            # CSV and database agree?
@@ -302,6 +313,7 @@ Facts the dashboard needs that no CSV holds (`002_dashboard.sql`, also shared wi
 .venv/bin/python src/db.py backup DEST
 .venv/bin/python src/db.py restore DEST
 .venv/bin/python src/db.py versions         # record the config, prompts and memory if they changed
+.venv/bin/python src/db.py purge            # apply the retention rules now
 ```
 
 ## Broker backends

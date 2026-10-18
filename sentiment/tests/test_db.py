@@ -19,6 +19,7 @@ from logger import Book, snapshot_rows, trade_row
 CORE_SHA256 = {
     "001_core.sql": "07ee2f1a050a5fca03d6c8bcd7ba56ced6fbb9f56addf6e799e4519142593581",
     "002_dashboard.sql": "859a3602ba3a4e4e6274d22450b791222cf56011b824198473bdcb2f59299b05",
+    "003_bars.sql": "4ffdf41d3b4d2f948e9b31ba6767efa7462734a1f5903806bd2c7351177d53d3",
 }
 T0 = datetime(2026, 10, 14, 9, 45, tzinfo=ET)
 
@@ -48,7 +49,7 @@ def test_migrate_creates_schema_once(tmp_path):
     assert db.migrate(conn) == []
     tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
     assert {"meta", "order_events", "trades", "daily_summary", "orders", "equity_snapshots", "position_snapshots",
-            "runs", "versions"} <= tables
+            "runs", "versions", "bars"} <= tables
 
 
 def position(**kw):
@@ -253,3 +254,109 @@ def test_note_versions_never_raises(state, caplog):
     paths.db_file().mkdir(parents=True)
     assert db.note_versions("score") == []
     assert "recording versions" in caplog.text
+
+
+class BarSource:
+    def __init__(self):
+        self.calls = 0
+
+    def daily_bars(self, symbols, start, end):
+        import pandas as pd
+
+        self.calls += 1
+        days = [d.date() for d in pd.bdate_range(start.date(), end.date())]
+        return {s: pd.DataFrame({"open": 1.0, "high": 2.0, "low": 0.5, "close": 1.5, "volume": 10.0, "vwap": 1.2},
+                                index=pd.Index(days, name="date")) for s in symbols}
+
+
+def test_fetched_bars_reach_the_database(state):
+    from datetime import date
+
+    from broker import load_bars
+
+    db.connect(paths.db_file()).close()  # an existing database
+    source = BarSource()
+    load_bars(["AAPL", "NKE"], date(2026, 10, 12), date(2026, 10, 16), source)
+    load_bars(["AAPL"], date(2026, 10, 12), date(2026, 10, 16), source)  # cached: nothing fetched
+    conn = db.connect(paths.db_file())
+    rows = conn.execute("SELECT * FROM bars WHERE symbol = 'AAPL' ORDER BY ts").fetchall()
+    assert source.calls == 1 and [r["ts"] for r in rows] == [f"2026-10-{d}" for d in range(12, 17)]
+    assert (rows[0]["timeframe"], rows[0]["vwap"]) == ("1Day", 1.2)
+
+
+def test_bar_cache_is_backfilled_by_migrate_and_import(state, capsys):
+    from datetime import date
+
+    from broker import load_bars
+
+    load_bars(["AAPL", "NKE"], date(2026, 10, 12), date(2026, 10, 16), BarSource())
+    for suffix in ("", "-wal", "-shm"):  # the cache existed before the database
+        paths.db_file().with_name(db.DB_NAME + suffix).unlink(missing_ok=True)
+    conn = db.connect(paths.db_file())
+    assert conn.execute("SELECT COUNT(*) FROM bars").fetchone()[0] == 0
+    assert db.main(["migrate"]) == 0 and "bars: imported 2 symbols" in capsys.readouterr().out
+    assert conn.execute("SELECT COUNT(*) FROM bars").fetchone()[0] == 10
+    assert db.main(["import"]) == 0 and conn.execute("SELECT COUNT(*) FROM bars").fetchone()[0] == 10
+
+
+def test_a_new_database_imports_the_bar_cache(state):
+    from datetime import date
+
+    from broker import load_bars
+
+    load_bars(["AAPL"], date(2026, 10, 12), date(2026, 10, 16), BarSource())
+    for suffix in ("", "-wal", "-shm"):
+        paths.db_file().with_name(db.DB_NAME + suffix).unlink(missing_ok=True)
+    fill_book(Book(paths.book_dir("paper"), "paper"))  # the first write creates the database
+    assert db.connect(paths.db_file()).execute("SELECT COUNT(*) FROM bars").fetchone()[0] == 5
+
+
+def test_purge_follows_the_retention_rules(tmp_path):
+    from datetime import date
+
+    conn = db.connect(tmp_path / "p.db")
+    today = date(2026, 10, 14)
+    with conn:
+        for sym, day in (("OLD", "2026-06-01"), ("TRADED", "2026-06-01"), ("NEW", "2026-10-01")):
+            conn.execute("INSERT INTO bars (symbol, timeframe, ts) VALUES (?, '1Min', ?)", (sym, day + "T09:30:00-04:00"))
+        for sym, day in (("OLD", "2024-01-02"), ("TRADED", "2024-01-02"), ("TRADED", "2023-06-01"), ("NEW", "2026-01-02")):
+            conn.execute("INSERT INTO bars (symbol, timeframe, ts) VALUES (?, '1Day', ?)", (sym, day))
+        conn.execute("INSERT INTO trades (book, date, symbol, side, qty, entry_date, entry_time) "
+                     "VALUES ('paper', '2026-06-01', 'TRADED', 'long', 1, '2026-06-01', 'a')")
+        conn.execute("INSERT INTO trades (book, date, symbol, side, qty, entry_date, entry_time) "
+                     "VALUES ('paper', '2024-01-10', 'TRADED', 'long', 1, '2024-01-05', 'b')")
+        for ts in ("2026-06-01T10:00:00-04:00", "2026-06-01T15:59:00-04:00", "2026-10-13T10:00:00-04:00",
+                   "2026-10-13T15:59:00-04:00"):
+            conn.execute("INSERT INTO equity_snapshots (book, ts, equity) VALUES ('paper', ?, 1)", (ts,))
+            conn.execute("INSERT INTO position_snapshots (book, ts, symbol, qty) VALUES ('paper', ?, 'X', 1)", (ts,))
+        conn.execute("INSERT INTO equity_snapshots (book, ts, equity) VALUES ('dry_run', '2026-06-01T10:00:00-04:00', 1)")
+        for status, started in (("ok", "2026-06-01T03:00:00-04:00"), ("failed", "2026-06-01T03:00:00-04:00"),
+                                ("lost", "2026-06-01T03:00:00-04:00"), ("ok", "2026-10-13T03:00:00-04:00")):
+            conn.execute("INSERT INTO runs (job, started_at, status) VALUES ('j', ?, ?)", (started, status))
+    assert db.purge(conn, today) == {"1Min bars": 1, "1Day bars": 2, "equity snapshots": 1,
+                                     "position snapshots": 1, "ok runs": 1}
+    bars = sorted((r[0], r[1], r[2][:10]) for r in conn.execute("SELECT symbol, timeframe, ts FROM bars"))
+    assert bars == [("NEW", "1Day", "2026-01-02"), ("NEW", "1Min", "2026-10-01"),
+                    ("TRADED", "1Day", "2024-01-02"), ("TRADED", "1Min", "2026-06-01")]
+    kept = [r[0] for r in conn.execute("SELECT ts FROM equity_snapshots WHERE book = 'paper' ORDER BY ts")]
+    assert kept == ["2026-06-01T15:59:00-04:00", "2026-10-13T10:00:00-04:00", "2026-10-13T15:59:00-04:00"]
+    assert [r[0] for r in conn.execute("SELECT ts FROM position_snapshots ORDER BY ts")] == kept
+    assert conn.execute("SELECT COUNT(*) FROM equity_snapshots WHERE book = 'dry_run'").fetchone()[0] == 1
+    assert sorted(r[0] for r in conn.execute("SELECT status FROM runs")) == ["failed", "lost", "ok"]
+    assert db.purge(conn, today) == dict.fromkeys(["1Min bars", "1Day bars", "equity snapshots",
+                                                   "position snapshots", "ok runs"], 0)
+
+
+def test_strip_bars_empties_only_the_bars(tmp_path):
+    conn = db.connect(tmp_path / "b.db")
+    with conn:
+        conn.executemany("INSERT INTO bars (symbol, timeframe, ts, close) VALUES ('SPY', '1Min', ?, 1)",
+                         [(str(i),) for i in range(5000)])
+        conn.execute("INSERT INTO runs (job, started_at, status) VALUES ('j', 't', 'ok')")
+    conn.close()
+    size = (tmp_path / "b.db").stat().st_size
+    db.strip_bars(tmp_path / "b.db")
+    conn = db.connect(tmp_path / "b.db")
+    assert conn.execute("SELECT COUNT(*) FROM bars").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 1
+    assert (tmp_path / "b.db").stat().st_size < size

@@ -4,9 +4,11 @@ During the dual-write phase (ticket 005a) the CSV files stay the source of truth
 is mirrored here; a database error is logged and never stops trading. `check` compares the two.
 
     python src/db.py migrate         create or upgrade the database; a new one imports the CSVs
-    python src/db.py import          rebuild every book's rows from its CSV files (idempotent)
+    python src/db.py import          rebuild every book's rows from its CSV files, and copy in the daily bar
+                                     cache (idempotent)
     python src/db.py check           compare the CSV files with the database; exit 1 on a mismatch
-    python src/db.py backup DEST     consistent copy of the database (SQLite backup API)
+    python src/db.py backup DEST     consistent copy of the database (SQLite backup API) without the bars
+    python src/db.py purge           apply the retention rules (old bars, snapshots, runs)
     python src/db.py restore SRC     replace the database with a backup
     python src/db.py run-start JOB [--started TS] [--sha SHA] [--pid PID]
                                      record a job as running; prints the run id (scripts/job.sh)
@@ -16,7 +18,8 @@ is mirrored here; a database error is logged and never stops trading. `check` co
                                      record the config, watchlist, prompts and memory if they changed
 
 One database holds every book (paper, dry_run, replay), told apart by the `book` column. Orders,
-snapshots, runs and versions (ticket 005b) have no CSV copy.
+snapshots, runs and versions (ticket 005b) have no CSV copy. Daily bars (ticket 005c) are copied
+from the bar cache in data/bars/ whenever it saves new ones.
 """
 import argparse
 import csv
@@ -185,6 +188,24 @@ def open_order_ids(conn, book):
         (book,))]
 
 
+def bar_rows(frames, timeframe):
+    """bars-table rows from {symbol: frame of BAR_COLUMNS}, indexed by bar start time or by date."""
+    rows = []
+    for symbol, df in frames.items():
+        if df is None or df.empty:
+            continue
+        for ts, r in zip(df.index, df.to_dict("records")):
+            values = [r.get(c) for c in ("open", "high", "low", "close", "volume", "vwap")]
+            rows.append((symbol, timeframe, ts.isoformat(),
+                         *(None if v is None or v != v else float(v) for v in values)))  # NaN -> NULL
+    return rows
+
+
+def put_bars(conn, frames, timeframe):
+    conn.executemany("INSERT OR REPLACE INTO bars (symbol, timeframe, ts, open, high, low, close, volume, vwap) "
+                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", bar_rows(frames, timeframe))
+
+
 def clear_book(conn, book, tables=BOOK_TABLES):
     for table in tables:
         conn.execute(f"DELETE FROM {table} WHERE book = ?", (book,))
@@ -234,6 +255,7 @@ def open_db(path, sources):
     if new:
         for book, directory in sources:
             resync(conn, book, *csv_rows(directory))
+        import_bar_cache(conn)
     return conn, new
 
 
@@ -395,6 +417,33 @@ def current_versions():
     return items
 
 
+def import_bar_cache(conn):
+    """Copy the daily bar cache (data/bars/<SYM>.csv) into the bars table. Returns the number of symbols."""
+    import pandas as pd
+
+    files = sorted(paths.bars_dir().glob("*.csv"))
+    with conn:
+        for f in files:
+            df = pd.read_csv(f, index_col="date")
+            df.index = pd.to_datetime(df.index).date
+            put_bars(conn, {f.stem: df}, "1Day")
+    return len(files)
+
+
+def note_bars(frames):
+    """Daily bars just saved to the cache, into data/trader.db for the dashboard. Never raises."""
+    try:
+        conn, new = open_db(paths.db_file(), book_dirs())
+        try:
+            if not new:  # a new database imported the whole cache, these included
+                with conn:
+                    put_bars(conn, frames, "1Day")
+        finally:
+            conn.close()
+    except Exception:
+        LOG.warning("saving bars in %s failed; the bar cache is unaffected", paths.db_file(), exc_info=True)
+
+
 def note_versions(reason):
     """record_versions for the current state into data/trader.db. Never raises; returns the rows added."""
     try:
@@ -406,6 +455,59 @@ def note_versions(reason):
     except Exception:
         LOG.warning("recording versions in %s failed", paths.db_file(), exc_info=True)
         return []
+
+
+# ---- retention (db.py purge, nightly). Trades, order events, daily summaries, orders and versions are
+# kept forever; they are small and the bots learn from them.
+MINUTE_BARS_DAYS = 90  # 1Min bars older than this go, except on days a trade in this database held the symbol
+DAILY_BARS_DAYS = 730  # 1Day bars older than this go, except from 90 days before to 30 after a trade
+SNAPSHOT_DAYS = 90  # older snapshots are thinned to the last one of each day
+RUNS_DAYS = 90  # older runs that ended ok go; failed and lost runs are kept
+
+
+def purge(conn, today):
+    """Delete what the retention rules above let go. Returns {what: rows deleted}.
+
+    Freed pages are reused by later writes, so the file stops growing; it is not vacuumed."""
+    from datetime import timedelta
+
+    def cut(days):
+        return (today - timedelta(days=days)).isoformat()
+
+    steps = {
+        "1Min bars": ("DELETE FROM bars WHERE timeframe = '1Min' AND substr(ts, 1, 10) < ? AND NOT EXISTS ("
+                      "SELECT 1 FROM trades t WHERE t.symbol = bars.symbol "
+                      "AND substr(bars.ts, 1, 10) BETWEEN COALESCE(t.entry_date, t.date) AND t.date)",
+                      cut(MINUTE_BARS_DAYS)),
+        "1Day bars": ("DELETE FROM bars WHERE timeframe = '1Day' AND ts < ? AND NOT EXISTS ("
+                      "SELECT 1 FROM trades t WHERE t.symbol = bars.symbol "
+                      "AND bars.ts BETWEEN date(COALESCE(t.entry_date, t.date), '-90 days') AND date(t.date, '+30 days'))",
+                      cut(DAILY_BARS_DAYS)),
+        "equity snapshots": ("DELETE FROM equity_snapshots WHERE substr(ts, 1, 10) < ? AND ts < ("
+                             "SELECT MAX(e.ts) FROM equity_snapshots e WHERE e.book = equity_snapshots.book "
+                             "AND substr(e.ts, 1, 10) = substr(equity_snapshots.ts, 1, 10))", cut(SNAPSHOT_DAYS)),
+        "position snapshots": ("DELETE FROM position_snapshots WHERE substr(ts, 1, 10) < ? AND NOT EXISTS ("
+                               "SELECT 1 FROM equity_snapshots e WHERE e.book = position_snapshots.book "
+                               "AND e.ts = position_snapshots.ts)", cut(SNAPSHOT_DAYS)),
+        "ok runs": ("DELETE FROM runs WHERE status = 'ok' AND substr(started_at, 1, 10) < ?", cut(RUNS_DAYS)),
+    }
+    deleted = {}
+    with conn:
+        for what, (sql, before) in steps.items():  # equity before position snapshots: positions follow equity
+            deleted[what] = conn.execute(sql, (before,)).rowcount
+    return deleted
+
+
+def strip_bars(path):
+    """Remove the bars from a backup copy and compact it: bars are the bulk of the database, and the
+    bots fetch them again (claude-sentiment-trading also keeps them in its bar cache)."""
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute("DELETE FROM bars")
+        conn.commit()
+        conn.execute("VACUUM")
+    finally:
+        conn.close()
 
 
 def _copy(src, dest):
@@ -452,7 +554,7 @@ def book_dirs():
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = ap.add_subparsers(dest="command", required=True)
-    for name in ("migrate", "import", "check"):
+    for name in ("migrate", "import", "check", "purge"):
         sub.add_parser(name)
     for name in ("backup", "restore"):
         sub.add_parser(name).add_argument("path", nargs="?", help="destination for backup, source for restore")
@@ -492,10 +594,19 @@ def main(argv=None):
         if args.command == "backup":
             connect(live).close()
             backup(live, args.path)
-            print(f"backed up {live} to {args.path}")
+            strip_bars(args.path)
+            print(f"backed up {live} to {args.path} (without bars)")
         else:
             restore(args.path, live)
             print(f"restored {live} from {args.path}")
+        return 0
+    if args.command == "purge":
+        conn = connect(live)
+        try:
+            deleted = purge(conn, datetime.now(ET).date())
+        finally:
+            conn.close()
+        print(f"{live}: " + ", ".join(f"{n} {what}" for what, n in deleted.items()))
         return 0
     new = not live.exists()
     conn = connect(live)
@@ -503,6 +614,10 @@ def main(argv=None):
     try:
         if args.command == "migrate":
             print(f"{live}: schema version {schema_version(conn)}")
+            if not conn.execute("SELECT 1 FROM bars LIMIT 1").fetchone():  # new, or the bars table just arrived
+                print(f"bars: imported {import_bar_cache(conn)} symbols from the bar cache")
+        elif args.command == "import":
+            print(f"bars: imported {import_bar_cache(conn)} symbols from the bar cache")
         for book, directory in book_dirs():
             rows = csv_rows(directory)
             if args.command == "import" or (args.command == "migrate" and new):

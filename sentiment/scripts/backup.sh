@@ -9,7 +9,7 @@ BACKUP_DIR="${BACKUP_DIR:-$(grep -E '^BACKUP_DIR=' .env 2>/dev/null | tail -1 | 
 mkdir -p data/backups
 archive="data/backups/data-$(date +%Y%m%d-%H%M%S).tar.gz"
 # The live database is copied through SQLite's backup API (a plain copy of a file being written can be
-# torn) and archived as data/trader.db; the live file and its WAL are left out.
+# torn), without its bars, and archived as data/trader.db; the live file and its WAL are left out.
 snapshot="data/trader.snapshot.db"
 rm -f "$snapshot"
 [ -f data/trader.db ] && .venv/bin/python src/db.py backup "$snapshot" >/dev/null

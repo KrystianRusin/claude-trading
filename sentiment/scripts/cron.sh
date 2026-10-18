@@ -31,6 +31,7 @@ lines="*/30 7-20 * * 1-5 $(job news) $PY src/news.py fetch >> $LOG 2>&1 $CRON_TA
 30 18 * * 1-5 $(job analytics) sh -c \"$PY src/analyze.py; $PY src/lifetime.py; $PY src/compare.py\" >> $LOG 2>&1 $CRON_TAG
 15 19 * * 1-5 $(job universe) $PY src/universe.py build >> $LOG 2>&1 $CRON_TAG
 45 19 * * 1-5 . $SECRETS; $(job review) $PY src/review.py run >> $LOG 2>&1 $CRON_TAG
+50 2 * * * $(job purge) $PY src/db.py purge >> $LOG 2>&1 $CRON_TAG
 0 3 * * * $(job backup) $REPO/scripts/backup.sh >> $LOG 2>&1 $CRON_TAG
 */5 * * * * $REPO/scripts/deploy.sh >> $REPO/data/logs/deploy.log 2>&1 $CRON_TAG"
 

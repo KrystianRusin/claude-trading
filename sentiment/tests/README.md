@@ -16,7 +16,7 @@ defaults, and moves the `HALT` file next to it.
 |---|---|
 | `test_config.py` | Config bounds, data folder init, config upgrade, watchlist |
 | `test_broker.py` | Paper-only endpoint, `ALLOW_LIVE` gate, separate-account check, Alpaca status and error translation, backend selection (incl. the IBKR stub), bar and news conversion |
-| `test_db.py` | `trader.db`: migrations, the pinned shared core schemas, the CSV mirror for every book, import, check, backup and restore; order states, snapshots, runs and versions |
+| `test_db.py` | `trader.db`: migrations, the pinned shared core schemas, the CSV mirror for every book, import, check, backup and restore; order states, snapshots, runs, versions and bars |
 | `test_broker_contract.py` | The contract every execution backend must pass: SimBroker, and Alpaca on the in-memory client in `fake_alpaca.py` |
 | `test_news.py` | Dedupe, date bucketing, fetch cursor, status |
 | `test_universe.py` | Liquidity screen, universe file, watchlist merge |
