@@ -6,6 +6,8 @@ are held for days. It runs on a Raspberry Pi next to
 [claude-quant](https://github.com/KrystianRusin/claude-quant), on its own Alpaca paper account, so
 the two approaches can be compared over the same period.
 
+Its results are live on the dashboard: https://krystianrusin.github.io/desk/
+
 Paper fills are optimistic, paper shorts have no borrow costs, and short-run results say little
 about skill. This is not financial advice.
 
