@@ -33,6 +33,18 @@
   "pairs.max_hold_days": {"type": "int", "min": 1, "max": 30},
   "pairs.stop_atr_multiple": {"type": "number", "min": 0.5, "max": 6.0},
   "memory.use_in_scoring": {"type": "bool"},
+  "attention.baseline_days": {"type": "int", "min": 10, "max": 60},
+  "attention.wiki_baseline_days": {"type": "int", "min": 10, "max": 90},
+  "attention.z_floor": {"type": "number", "min": 0.1, "max": 2.0},
+  "attention.elevated_z": {"type": "number", "min": 1.0, "max": 5.0},
+  "attention.min_reddit_days": {"type": "int", "min": 5, "max": 60},
+  "discovery.enabled": {"enum": [false]},
+  "discovery.max_names": {"type": "int", "min": 0, "max": 50},
+  "discovery.min_price": {"type": "number", "min": 1, "max": 100},
+  "discovery.min_dollar_volume": {"type": "number", "min": 1000000, "max": 1000000000},
+  "discovery.min_history_days": {"type": "int", "min": 10, "max": 250},
+  "discovery.min_breadth": {"type": "int", "min": 1, "max": 4},
+  "discovery.max_run_5d_pct": {"type": "number", "min": 5, "max": 200},
   "data_feed": {"enum": ["iex"]},
   "timezone": {"enum": ["America/New_York"]}
 }

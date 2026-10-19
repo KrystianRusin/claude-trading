@@ -325,10 +325,11 @@ def make_execution(verify_account=True):
     return execution
 
 
-def make_market_data(cfg):
-    """The data backend named by DATA_BACKEND. Needs no trading access."""
+def make_market_data(cfg, feed=None):
+    """The data backend named by DATA_BACKEND. Needs no trading access. `feed` overrides the config's, for
+    full-market ("sip") history older than 15 minutes, which the free plan includes."""
     load_dotenv(paths.ENV_FILE)
-    return _backend(DATA_BACKENDS, "DATA_BACKEND")(feed=cfg.get("data_feed", "iex"))
+    return _backend(DATA_BACKENDS, "DATA_BACKEND")(feed=feed or cfg.get("data_feed", "iex"))
 
 
 def make_broker(cfg, verify_account=True):

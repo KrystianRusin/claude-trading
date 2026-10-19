@@ -5,6 +5,7 @@ A query names a table and conditions joined with "and":
     scores: score >= 1 and reason contains "guidance"
     scores: confidence < 0.6
     trades: side == short and hold_days >= 3
+    scores: attention_breadth >= 2 and score >= 2
 
 `scores` has one row per non-zero score whose forward window has completed; its metric is the signed
 forward return in % (the move in the score's direction). `trades` has one row per closed trade; its
@@ -12,7 +13,12 @@ metric is pnl_r. A query passes when, over enough rows and days, the metric's 95
 day, since same-day rows share market conditions) excludes zero, and the rows after the hypothesis
 was registered point the same way. Only rows after registration can make it pass, so a hypothesis
 cannot be fitted to the data it was drawn from.
+
+Both tables carry the attention of the session before the score or the entry (attention.py): each
+source's z (volume_z, news_z, wiki_z, reddit_z) and attention_breadth. They are empty before collection
+began.
 """
+import bisect
 import math
 import re
 
@@ -22,13 +28,14 @@ import pandas as pd
 T_95 = {1: 12.71, 2: 4.30, 3: 3.18, 4: 2.78, 5: 2.57, 6: 2.45, 7: 2.36, 8: 2.31, 9: 2.26, 10: 2.23,
         12: 2.18, 15: 2.13, 20: 2.09, 30: 2.04, 60: 2.00, 120: 1.98}
 NUM, TEXT = "num", "text"
+ATTENTION = {"volume_z": NUM, "news_z": NUM, "wiki_z": NUM, "reddit_z": NUM, "attention_breadth": NUM}
 TABLES = {
     "scores": {"metric": "signed_return_pct", "min_n": 30, "min_days": 10, "min_since": 15,
                "columns": {"symbol": TEXT, "score": NUM, "confidence": NUM, "articles": NUM, "reason": TEXT,
-                           "weekday": NUM}},
+                           "weekday": NUM} | ATTENTION},
     "trades": {"metric": "pnl_r", "min_n": 20, "min_days": 10, "min_since": 10,
                "columns": {"symbol": TEXT, "side": TEXT, "score": NUM, "confidence": NUM, "hold_days": NUM,
-                           "exit_reason": TEXT, "strategy": TEXT, "pair": TEXT, "weekday": NUM}},
+                           "exit_reason": TEXT, "strategy": TEXT, "pair": TEXT, "weekday": NUM} | ATTENTION},
 }
 CONFIRM_FACTOR = 2  # confirmed needs twice the minimum rows overall and since registration
 CONDITION = re.compile(r"^\s*(\w+)\s*(==|!=|>=|<=|>|<|in|contains)\s*(.+?)\s*$")
@@ -110,7 +117,7 @@ def mean_ci(values, days):
     return out
 
 
-def score_rows(outcomes):
+def score_rows(outcomes, attention_rows=()):
     """The scores table: non-zero scored outcomes with their signed forward return."""
     if outcomes is None or len(outcomes) == 0:
         return pd.DataFrame(columns=["date", *TABLES["scores"]["columns"], "signed_return_pct"])
@@ -119,6 +126,26 @@ def score_rows(outcomes):
     for col in ("articles", "reason"):
         if col not in df:
             df[col] = np.nan if col == "articles" else ""
+    return with_attention(df, attention_rows, "date")
+
+
+def with_attention(df, attention_rows, date_col):
+    """`df` with the attention columns of each row's symbol from the latest session before its `date_col`
+    (attention is computed after a session closes, so that is what was known at the time)."""
+    by_symbol = {}
+    for r in attention_rows:
+        by_symbol.setdefault(r["symbol"], []).append(r)
+    found = {k: [] for k in ATTENTION}
+    for sym, when in zip(df["symbol"], df[date_col]):
+        rows = by_symbol.get(sym, [])
+        day = str(when)[:10]
+        i = bisect.bisect_left([r["date"] for r in rows], day) - 1
+        r = rows[i] if i >= 0 else None
+        for k in ATTENTION:
+            found[k].append(np.nan if r is None else r["breadth" if k == "attention_breadth" else k])
+    df = df.copy()
+    for k, values in found.items():
+        df[k] = pd.to_numeric(pd.Series(values, index=df.index, dtype="object"), errors="coerce")
     return df
 
 

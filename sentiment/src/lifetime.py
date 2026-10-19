@@ -281,6 +281,14 @@ def build(book, horizon, log=None, outcomes=None, fetch=True):
     text = build_lifetime(trades, summary, baseline, outcomes=outcomes, horizon=horizon,
                           holdings=_open_positions(book))
     stats = compute(trades, summary, outcomes) | {"book": book}
+    if book == "paper":
+        try:
+            import attention
+
+            stats["attention"] = attention.calibration()
+        except Exception:
+            if log:
+                log.warning("attention calibration skipped", exc_info=True)
     if book != "replay":
         from compare import comparison
 

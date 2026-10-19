@@ -101,6 +101,15 @@ def pairs_file():
     return data_dir() / "pairs.json"
 
 
+def attention_dir():
+    """Raw attention data, one folder per source (see attention.py). Only ever added to."""
+    return data_dir() / "attention"
+
+
+def discovery_dir():
+    return data_dir() / "discovery"
+
+
 def book_dir(mode):
     """Folder holding a book's trades, orders, positions, daily summary, reports and lifetime stats."""
     if mode not in BOOK_MODES:

@@ -19,7 +19,8 @@ is mirrored here; a database error is logged and never stops trading. `check` co
 
 One database holds every book (paper, dry_run, replay), told apart by the `book` column. Orders,
 snapshots, runs and versions (ticket 005b) have no CSV copy. Daily bars (ticket 005c) are copied
-from the bar cache in data/bars/ whenever it saves new ones.
+from the bar cache in data/bars/ whenever it saves new ones. Attention features (ticket 009, migration
+100) are written by attention.py.
 """
 import argparse
 import csv
@@ -459,6 +460,45 @@ def note_bars(frames):
             conn.close()
     except Exception:
         LOG.warning("saving bars in %s failed; the bar cache is unaffected", paths.db_file(), exc_info=True)
+
+
+ATTENTION_COLUMNS = ("date", "symbol", "in_universe", "volume_z", "rvol", "news_z", "articles", "wiki_z", "page_views",
+                     "reddit_z", "mentions", "breadth", "acceleration", "close", "ret_1d")
+
+
+def put_attention(conn, rows):
+    conn.executemany(f"INSERT OR REPLACE INTO attention ({', '.join(ATTENTION_COLUMNS)}) "
+                     f"VALUES ({', '.join('?' * len(ATTENTION_COLUMNS))})",
+                     [tuple(r.get(c) for c in ATTENTION_COLUMNS) for r in rows])
+
+
+def note_attention(rows):
+    """Attention feature rows (attention.py) into data/trader.db. Never raises; returns whether it worked."""
+    try:
+        conn, _ = open_db(paths.db_file(), book_dirs())
+        try:
+            with conn:
+                put_attention(conn, rows)
+            return True
+        finally:
+            conn.close()
+    except Exception:
+        LOG.warning("saving attention rows in %s failed", paths.db_file(), exc_info=True)
+        return False
+
+
+def read_attention(since=None):
+    """Attention rows from data/trader.db as dicts, oldest first; [] when there is no database."""
+    if not paths.db_file().exists():
+        return []
+    conn = connect(paths.db_file())
+    try:
+        sql = f"SELECT {', '.join(ATTENTION_COLUMNS)} FROM attention"
+        rows = conn.execute(sql + (" WHERE date >= ? ORDER BY date, symbol" if since else " ORDER BY date, symbol"),
+                            (since,) if since else ()).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
 
 
 def note_versions(reason):

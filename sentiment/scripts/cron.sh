@@ -23,6 +23,9 @@ job() { echo "cd $REPO && JOB_NAME=$1 scripts/job.sh"; }  # a job under the depl
 
 lines="*/30 7-20 * * 1-5 $(job news) $PY src/news.py fetch >> $LOG 2>&1 $CRON_TAG
 0 10,18 * * 0,6 $(job news) $PY src/news.py fetch >> $LOG 2>&1 $CRON_TAG
+0 6 * * * $(job attention) $PY src/attention.py morning >> $LOG 2>&1 $CRON_TAG
+0 18 * * * $(job reddit) $PY src/attention.py collect apewisdom >> $LOG 2>&1 $CRON_TAG
+0 19 * * 1-5 $(job attention-volume) $PY src/attention.py collect volume >> $LOG 2>&1 $CRON_TAG
 30 6 * * 1-5 . $SECRETS; $(job score) $PY src/score.py run >> $LOG 2>&1 $CRON_TAG
 45 9 * * 1-5 $(job trader-run) $PY src/trader.py run >> $LOG 2>&1 $CRON_TAG
 32-57/5 9 * * 1-5 $(job snapshot) $PY src/trader.py snapshot >> $LOG 2>&1 $CRON_TAG

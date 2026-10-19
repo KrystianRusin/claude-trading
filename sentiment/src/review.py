@@ -15,6 +15,7 @@ import sys
 from datetime import date, datetime, timedelta
 
 import analyze
+import db
 import evidence
 import lifetime
 import memory
@@ -128,7 +129,11 @@ def day_report(book, day):
 
 def tables_for(book, outcomes):
     trades = analyze.filter_trades(read_trades_frame(paths.book_dir(book) / "trades.csv"))
-    return {"scores": evidence.score_rows(outcomes), "trades": trades}
+    attention = db.read_attention()
+    if len(trades):
+        entry = trades["entry_date"].where(trades["entry_date"].astype(str) != "", trades["date"])
+        trades = evidence.with_attention(trades.assign(_entry=entry), attention, "_entry").drop(columns="_entry")
+    return {"scores": evidence.score_rows(outcomes, attention), "trades": trades}
 
 
 def review(now, book, cfg, caller=None, log=None, outcomes=None, fetch=True):

@@ -149,12 +149,17 @@ class AlpacaMarketData(b.MarketData):
         return bool(a.tradable), bool(a.shortable), bool(a.easy_to_borrow)
 
     def list_equities(self):
-        """Active, tradable stocks on NYSE, NASDAQ and NYSE American."""
-        from alpaca.trading.enums import AssetClass, AssetStatus
+        """Active, tradable stocks on NYSE, NASDAQ and NYSE American.
+
+        Asked for one exchange at a time: alpaca-py rejects the whole list when it holds an exchange it does
+        not know yet (one TXSE listing broke it in October 2026)."""
+        from alpaca.trading.enums import AssetClass, AssetExchange, AssetStatus
         from alpaca.trading.requests import GetAssetsRequest
 
-        assets = self.trading.get_all_assets(GetAssetsRequest(status=AssetStatus.ACTIVE,
-                                                              asset_class=AssetClass.US_EQUITY))
+        assets = []
+        for exchange in sorted(STOCK_EXCHANGES):
+            assets += self.trading.get_all_assets(GetAssetsRequest(status=AssetStatus.ACTIVE, asset_class=AssetClass.US_EQUITY,
+                                                                   exchange=AssetExchange(exchange)))
         return [{"symbol": a.symbol, "name": a.name or "", "exchange": _value(a.exchange),
                  "shortable": bool(a.shortable), "easy_to_borrow": bool(a.easy_to_borrow)}
                 for a in assets if a.tradable and _value(a.exchange) in STOCK_EXCHANGES]

@@ -109,8 +109,10 @@ def main(argv=None):
     args = ap.parse_args(argv)
     config.init_data()
     log = setup_logging("news")
-    symbols = universe.load(config.load_watchlist())
+    import attention
+
     now = datetime.now(ET)
+    symbols = list(dict.fromkeys(universe.load(config.load_watchlist()) + attention.latest_discovery(now.date())))
     if args.command == "status":
         print(status(now.date(), symbols))
         return 0

@@ -61,6 +61,27 @@ Score calibration is the main measure of whether the scores carry information. F
 traded or not, `lifetime.py` measures the stock's return over the holding window. With up to 60
 scores a day, that answers the question much sooner than trades alone.
 
+## Attention and discovery
+
+`src/attention.py` measures how unusual the interest in each stock is, against the stock's own normal, from
+four sources:
+- trading volume, from Alpaca's free full-market daily bars;
+- news volume, counted from the bot's news archive;
+- Wikipedia page views, from the Wikimedia API (Wikidata maps tickers to articles);
+- Reddit mention counts across stock subreddits, from ApeWisdom's public API.
+
+Each source is archived raw under `data/attention/` as it's fetched, since two of them keep no history
+of their own. A source that fails is skipped and the rest carry on. Tickers that are also words or slang
+("DTE", "IT", "ON") only count on Reddit when volume or news is unusual too.
+
+Every morning at 06:00 the features of the last session go into the `attention` table, and a discovery
+list is written to `data/discovery/<date>.json`: smaller stocks outside the core universe with a surge in
+at least two sources, one of them volume or news. They have to trade at least $3 a share and $5M a day,
+and not have already run up more than 40% in a week. For now the list is only collected and measured;
+`discovery.enabled` can't be turned on until trading rules for it exist. Hypotheses can already query
+the attention of the session before a score or trade (`volume_z`, `news_z`, `wiki_z`, `reddit_z`,
+`attention_breadth`), and `lifetime.json` holds returns by attention.
+
 ## Safety
 
 - Paper only. The Alpaca client refuses non-paper endpoints, any live account needs `ALLOW_LIVE=1`,
@@ -118,6 +139,7 @@ All commands run as `.venv/bin/python src/<name>.py`.
 | `analyze.py [--day DATE]` | Writes the daily report, or `--report` for a performance report. |
 | `compare.py` | Compares with claude-quant over overlapping days. |
 | `review.py run \| show` | Runs the evening review, or prints the memory. |
+| `attention.py morning \| show [SYMBOL]` | Collects attention and writes the discovery list, or prints the latest features. |
 
 The two reports to read are `data/daily/<date>.md` (one day) and `data/lifetime.md` (everything
 since the start).
