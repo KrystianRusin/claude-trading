@@ -6,8 +6,8 @@ import pytest
 from conftest import DAYS, SCHEMA, TODAY
 from desk import views
 
-# The bots' shared core migrations, as the bots pin them in their tests/test_db.py. If a bot changes
-# one, copy the new file into tests/schema/ and update this too.
+# The bots' shared core migrations, as the bots pin them in their tests/test_db.py. The views are written
+# against these; if the bots change one, check the views and update this too.
 CORE_SHA256 = {
     "001_core.sql": "07ee2f1a050a5fca03d6c8bcd7ba56ced6fbb9f56addf6e799e4519142593581",
     "002_dashboard.sql": "859a3602ba3a4e4e6274d22450b791222cf56011b824198473bdcb2f59299b05",
@@ -15,15 +15,16 @@ CORE_SHA256 = {
 }
 
 
-def test_schema_copy_matches_the_bots():
-    assert {f.name for f in SCHEMA.glob("*.sql")} == set(CORE_SHA256)
-    for name, sha in CORE_SHA256.items():
-        assert hashlib.sha256((SCHEMA / name).read_bytes()).hexdigest() == sha
+def test_both_bots_have_the_core_schema_the_views_expect():
+    for folder in (SCHEMA, SCHEMA.parents[1] / "sentiment" / "migrations"):
+        assert {f.name for f in folder.glob("0*.sql")} == set(CORE_SHA256)
+        for name, sha in CORE_SHA256.items():
+            assert hashlib.sha256((folder / name).read_bytes()).hexdigest() == sha, folder / name
 
 
 def test_equity_summary(settings):
     books = {(b["bot"], b["book"]): b for b in views.equity(settings)["books"]}
-    q = books[("quant", "paper")]
+    q = books[("daytrader", "paper")]
     assert len(q["daily"]) == len(DAYS) and q["intraday"]["date"] == TODAY.isoformat()
     assert len(q["intraday"]["points"]) == 6
     s = q["summary"]
@@ -43,7 +44,7 @@ def test_max_drawdown():
 def test_trades_filters_and_stats(settings):
     all_ = views.trades(settings)
     assert all_["total"] == 12 and all_["trades"][0]["date"] >= all_["trades"][-1]["date"]
-    q = views.trades(settings, bot="quant", symbol="QQQ")
+    q = views.trades(settings, bot="daytrader", symbol="QQQ")
     assert q["total"] == 3 and q["stats"]["total_pnl"] == 120 and q["stats"]["win_rate"] == pytest.approx(2 / 3, abs=1e-4)
     assert views.trades(settings, exit_reason="sl")["total"] == 3
     assert views.trades(settings, side="short")["total"] == 1
@@ -63,7 +64,7 @@ def test_r_histogram_bins():
 
 def test_symbol_results(settings):
     rows = views.symbol_results(settings, days=None, min_trades=3)["symbols"]
-    assert [(r["bot"], r["symbol"]) for r in rows] == [("sentiment", "NKE"), ("quant", "QQQ"), ("quant", "SPY")]
+    assert [(r["bot"], r["symbol"]) for r in rows] == [("sentiment", "NKE"), ("daytrader", "QQQ"), ("daytrader", "SPY")]
     nke = rows[0]
     assert (nke["trades"], nke["pnl"], nke["avg_r"]) == (3, 300, pytest.approx(0.5))
     assert views.symbol_results(settings, days=7, min_trades=1)["symbols"]  # a window still finds trades
@@ -72,23 +73,23 @@ def test_symbol_results(settings):
 
 def test_hot_right_now_and_disagreement(settings):
     hot = views.hot(settings)
-    assert [(s["symbol"], s["signals"], s["entries"]) for s in hot["quant"]] == [("NVDA", 5, 0), ("SPY", 5, 5)]
-    assert {s["symbol"]: s["new_on_watchlist"] for s in hot["quant"]} == {"NVDA": True, "SPY": False}
+    assert [(s["symbol"], s["signals"], s["entries"]) for s in hot["daytrader"]] == [("NVDA", 5, 0), ("SPY", 5, 5)]
+    assert {s["symbol"]: s["new_on_watchlist"] for s in hot["daytrader"]} == {"NVDA": True, "SPY": False}
     sent = {s["symbol"]: s for s in hot["sentiment"]}
     assert sent["NKE"]["direction"] == "bullish" and sent["NKE"]["heat"] == pytest.approx(2 * 0.9 + 1 * 0.5)
     assert sent["NKE"]["articles"] == 5 and sent["SPY"]["direction"] == "bearish"
     assert sent["AMD"]["desk_ideas"] == 2
-    assert hot["disagree"] == [{"symbol": "SPY", "quant": "long", "sentiment": "bearish"}]
+    assert hot["disagree"] == [{"symbol": "SPY", "daytrader": "long", "sentiment": "bearish"}]
 
 
 def test_compare(settings):
     c = views.compare(settings)
-    assert c["bots"]["quant"]["days"] == len(DAYS) and c["bots"]["sentiment"]["days"] == len(DAYS)
-    assert c["bots"]["quant"]["worst_day_pct"] == pytest.approx(-0.5)
+    assert c["bots"]["daytrader"]["days"] == len(DAYS) and c["bots"]["sentiment"]["days"] == len(DAYS)
+    assert c["bots"]["daytrader"]["worst_day_pct"] == pytest.approx(-0.5)
     d = c["difference"]
     assert d["days"] == len(DAYS) and d["low_pct"] < d["mean_diff_pct"] < d["high_pct"]
     assert d["verdict"] == "no clear winner yet"
-    assert c["curves"]["quant"][0] == {"date": DAYS[0].isoformat(), "return_pct": pytest.approx(1.0)}
+    assert c["curves"]["daytrader"][0] == {"date": DAYS[0].isoformat(), "return_pct": pytest.approx(1.0)}
     short = views.compare(settings, start=TODAY, end=TODAY)
     assert short["difference"]["verdict"] == "not enough overlapping days"
 
@@ -102,17 +103,17 @@ def test_return_stats_on_a_known_series():
 
 def test_versions(settings):
     v = views.versions(settings)
-    changes = v["quant"]["changes"]
+    changes = v["daytrader"]["changes"]
     assert [c["kind"] for c in changes] == ["config", "watchlist", "memory", "memory", "config"]
     assert changes[0]["removed"] and changes[0]["name"] == "shadow" and "content" not in changes[0]
-    results = {(r["strategy_version"], r["config_version"]): r for r in v["quant"]["results"]}
+    results = {(r["strategy_version"], r["config_version"]): r for r in v["daytrader"]["results"]}
     assert results[("1", "3")]["trades"] == 4 and results[("2", "3")]["trades"] == 3
 
 
 def test_ops(settings):
     o = views.ops(settings)
-    jobs = {j["job"]: j for j in o["quant"]["jobs"]}
+    jobs = {j["job"]: j for j in o["daytrader"]["jobs"]}
     assert jobs["review"]["failures_7d"] == 1 and jobs["trader"]["last_status"] == "ok"
-    trader = next(r for r in o["quant"]["runs"] if r["job"] == "trader")
+    trader = next(r for r in o["daytrader"]["runs"] if r["job"] == "trader")
     assert trader["seconds"] == 6 * 3600 + 50 * 60 and "error" not in trader
     assert {j["job"]: j["last_status"] for j in o["sentiment"]["jobs"]} == {"snapshot": "ok", "score": "lost"}

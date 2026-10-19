@@ -8,7 +8,7 @@ cd "$(dirname "$0")/.."
 REPO="$PWD"
 PY="$REPO/.venv/bin/python"
 CRON_TAG="# sentiment-trader"
-PT_SECRETS="$HOME/.config/paper-trader/env"
+DT_SECRETS="$HOME/.config/daytrader/env"
 OWN_SECRETS_DIR="$HOME/.config/sentiment-trader"
 
 step() { printf '\n==> %s\n' "$*"; }
@@ -66,7 +66,7 @@ step "Alpaca keys for the second paper account (.env)"
 if [ -n "$(env_value ALPACA_API_KEY)" ] && [ -n "$(env_value ALPACA_SECRET_KEY)" ]; then
   echo "OK: .env already has keys"
 else
-  echo "Paste the keys of the SECOND paper account, not the paper-trader's (input is hidden)."
+  echo "Paste the keys of the SECOND paper account, not the day trader's (input is hidden)."
   read -r -s -p "ALPACA_API_KEY: " key; echo
   read -r -s -p "ALPACA_SECRET_KEY: " secret; echo
   [ -n "$key" ] && [ -n "$secret" ] || { echo "Both keys are required."; exit 1; }
@@ -77,25 +77,31 @@ fi
 own=$("$PY" src/broker.py account-number --env .env) || { echo "The keys do not reach a paper account."; exit 1; }
 echo "OK: keys reach paper account $own"
 
-if [ -n "$(env_value PAPER_TRADER_ACCOUNT)" ]; then
-  echo "OK: PAPER_TRADER_ACCOUNT already set"
+if [ -n "$(env_value PAPER_TRADER_ACCOUNT)" ] && [ -z "$(env_value DAYTRADER_ACCOUNT)" ]; then
+  # Names from before the monorepo
+  set_env DAYTRADER_ACCOUNT "$(env_value PAPER_TRADER_ACCOUNT)"
+  [ -n "$(env_value PAPER_TRADER_STATE)" ] && set_env DAYTRADER_STATE "$(env_value PAPER_TRADER_STATE)"
+  grep -vE '^PAPER_TRADER_(ACCOUNT|STATE)=' .env > .env.tmp || true
+  mv .env.tmp .env
+fi
+if [ -n "$(env_value DAYTRADER_ACCOUNT)" ]; then
+  echo "OK: DAYTRADER_ACCOUNT already set"
 else
-  read -r -p "Path to the paper-trader repo (blank if there is none): " pt
-  pt="${pt/#\~/$HOME}"
-  if [ -z "$pt" ]; then
-    set_env PAPER_TRADER_ACCOUNT none
+  dt="$REPO/../daytrader"
+  [ -f "$dt/.env" ] || read -r -p "Path to the day trader (blank if there is none): " dt
+  dt="${dt/#\~/$HOME}"
+  if [ -z "$dt" ]; then
+    set_env DAYTRADER_ACCOUNT none
   else
-    [ -f "$pt/.env" ] || { echo "No .env in $pt."; exit 1; }
-    other=$("$PY" src/broker.py account-number --env "$pt/.env") || { echo "Could not read the paper-trader's account."; exit 1; }
+    [ -f "$dt/.env" ] || { echo "No .env in $dt."; exit 1; }
+    other=$("$PY" src/broker.py account-number --env "$dt/.env") || { echo "Could not read the day trader's account."; exit 1; }
     if [ "$other" = "$own" ]; then
-      echo "These keys belong to the paper-trader's account. Create a second paper account and use its keys."
+      echo "These keys belong to the day trader's account. Create a second paper account and use its keys."
       exit 1
     fi
-    set_env PAPER_TRADER_ACCOUNT "$other"
-    for d in "$pt/state" "$pt/data"; do
-      if [ -f "$d/daily_summary.csv" ] || [ -d "$d" ]; then set_env PAPER_TRADER_STATE "$d"; break; fi
-    done
-    echo "OK: paper-trader account $other differs from $own"
+    set_env DAYTRADER_ACCOUNT "$other"
+    [ -d "$dt/data" ] && set_env DAYTRADER_STATE "$(cd "$dt/data" && pwd)"
+    echo "OK: the day trader's account $other differs from $own"
   fi
 fi
 if ! grep -q '^NTFY_TOPIC=' .env; then
@@ -114,9 +120,9 @@ else
 fi
 
 step "Claude token for scoring"
-if [ -f "$PT_SECRETS" ] && grep -q '^export CLAUDE_CODE_OAUTH_TOKEN=.\+' "$PT_SECRETS"; then
-  SECRETS="$PT_SECRETS"
-  echo "OK: reusing the paper-trader's token in $SECRETS"
+if [ -f "$DT_SECRETS" ] && grep -q '^export CLAUDE_CODE_OAUTH_TOKEN=.\+' "$DT_SECRETS"; then
+  SECRETS="$DT_SECRETS"
+  echo "OK: reusing the day trader's token in $SECRETS"
 else
   SECRETS="$OWN_SECRETS_DIR/env"
   mkdir -p "$OWN_SECRETS_DIR"
@@ -157,7 +163,7 @@ step "Universe (screening listed stocks, takes a minute or two)"
 "$PY" src/universe.py build
 
 step "Cron jobs"
-scripts/cron.sh install
+../scripts/cron.sh install
 echo "OK: installed"
 
 step "Done"
@@ -173,7 +179,7 @@ Schedule (local time, Eastern):
   universe     19:15 weekdays (data/universe.json, then data/pairs.json)
   review       19:45 weekdays (data/journal/<date>.md, data/memory/memory.md)
   backup       03:00 daily (data/backups/)
-  deploy       every 5 min: new commits on origin/main ship once CI passes (data/logs/deploy.log)
+  deploy       every 5 min: new commits on origin/main ship once CI passes (../data/deploy.log)
 
 Logs: data/logs/cron.log (everything), data/logs/sentiment.log (warnings and errors).
 

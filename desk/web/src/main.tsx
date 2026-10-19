@@ -64,6 +64,16 @@ function App() {
 }
 
 const client = new QueryClient();
+// Links shared before the quant bot became the day trader say bot=quant or trade=quant-<id>.
+{
+  const url = new URL(location.href);
+  const params = url.searchParams;
+  if (params.get("bot") === "quant") params.set("bot", "daytrader");
+  const trade = params.get("trade");
+  if (trade?.startsWith("quant-")) params.set("trade", "daytrader-" + trade.slice(6));
+  if (url.href !== location.href) history.replaceState(null, "", url);
+}
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={client}><BrowserRouter><App /></BrowserRouter></QueryClientProvider>

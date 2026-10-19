@@ -1,4 +1,4 @@
-"""Fake data folders for both bots, built with the bots' shared migrations (copied in tests/schema/)."""
+"""Fake data folders for both bots, built with the bots' shared core migrations (from daytrader/migrations)."""
 import csv
 import json
 import sqlite3
@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 from desk import app as app_mod
 from desk import config
 
-SCHEMA = Path(__file__).parent / "schema"
+SCHEMA = Path(__file__).resolve().parents[2] / "daytrader" / "migrations"
 DAYS = [date(2026, 10, 5) + timedelta(days=i) for i in range(10) if (date(2026, 10, 5) + timedelta(days=i)).weekday() < 5]
 TODAY = DAYS[-1]  # 2026-10-16
 SECRET = "Traceback: /home/krystian/claude-trade/.env account PA3SECRET"
@@ -21,7 +21,7 @@ def create_db(path):
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path)
     conn.execute("PRAGMA journal_mode=WAL")
-    for f in sorted(SCHEMA.glob("*.sql")):
+    for f in sorted(SCHEMA.glob("0*.sql")):  # the core ones, 001-099
         conn.executescript(f.read_text())
     conn.execute("INSERT INTO meta VALUES ('schema_version', '3')")
     return conn
@@ -41,10 +41,10 @@ def daily(conn, book, returns, start=100_000.0):
     return equity
 
 
-QUANT_MEMORY_1 = """# Trading memory\n\n## Active\n\n### M-1: Late breakouts fail\n- Status: hypothesis\n
+DAYTRADER_MEMORY_1 = """# Trading memory\n\n## Active\n\n### M-1: Late breakouts fail\n- Status: hypothesis\n
 - Since: 2026-10-06 | Last reviewed: 2026-10-06\n- Scope: all\n- Query: `entry_minute_after_open >= 60`\n
 - Evidence: 3 trades\n- Implication: watch\n\n## Retired\n\n_None._\n"""
-QUANT_MEMORY_2 = """# Trading memory\n\n## Active\n\n### M-1: Late breakouts fail\n- Status: supported\n
+DAYTRADER_MEMORY_2 = """# Trading memory\n\n## Active\n\n### M-1: Late breakouts fail\n- Status: supported\n
 - Since: 2026-10-06 | Last reviewed: 2026-10-09\n- Scope: all\n- Query: `entry_minute_after_open >= 60`\n
 - Evidence: 14 trades over 10 days\n- Implication: watch\n\n## Retired\n\n### M-2: Mondays are weak\n- Status: hypothesis\n
 - Since: 2026-10-06 | Last reviewed: 2026-10-09\n- Retired: 2026-10-09, contradicted\n"""
@@ -54,7 +54,7 @@ SENTIMENT_MEMORY_1 = [{"id": "M-1", "title": "Earnings beats drift", "status": "
 SENTIMENT_MEMORY_2 = [dict(SENTIMENT_MEMORY_1[0], status="supported", last_reviewed="2026-10-13")]
 
 
-def build_quant(folder):
+def build_daytrader(folder):
     conn = create_db(folder / "trader.db")
     last = daily(conn, "paper", [0.01, -0.005, 0.002, 0.003, -0.001, 0.004, 0.0, 0.002])
     for i, (sym, pnl, r) in enumerate([("SPY", 120, 1.2), ("SPY", -50, -0.5), ("QQQ", 80, 0.8), ("SPY", 30, 0.3),
@@ -89,7 +89,7 @@ def build_quant(folder):
     insert(conn, "orders", book="paper", order_id="o-secret-4", symbol="QQQ", side="buy", qty=5, order_type="market",
            status="filled", filled_qty=5, filled_avg_price=400, filled_at=f"{DAYS[-2]}T09:50:00-04:00",
            updated_at=f"{DAYS[-2]}T09:50:00-04:00")
-    for day, memory in ((DAYS[1], QUANT_MEMORY_1), (DAYS[4], QUANT_MEMORY_2)):
+    for day, memory in ((DAYS[1], DAYTRADER_MEMORY_1), (DAYS[4], DAYTRADER_MEMORY_2)):
         insert(conn, "versions", kind="memory", name="", version=None, sha256=f"m{day}", effective_from=f"{day}T17:30:00-04:00",
                reason="review", content=memory)
     insert(conn, "runs", job="trader", started_at=f"{TODAY}T09:00:00-04:00", ended_at=f"{TODAY}T15:50:00-04:00",
@@ -210,13 +210,13 @@ def build_sentiment(folder):
 
 @pytest.fixture
 def bots(tmp_path):
-    build_quant(tmp_path / "quant")
+    build_daytrader(tmp_path / "daytrader")
     build_sentiment(tmp_path / "sentiment")
     return tmp_path
 
 
 def write_settings(tmp_path, **override):
-    raw = {"bots": {"quant": {"data_dir": str(tmp_path / "quant")},
+    raw = {"bots": {"daytrader": {"data_dir": str(tmp_path / "daytrader")},
                     "sentiment": {"data_dir": str(tmp_path / "sentiment")}}} | override
     path = tmp_path / "desk.json"
     path.write_text(json.dumps(raw))

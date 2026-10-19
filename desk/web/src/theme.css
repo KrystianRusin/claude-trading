@@ -1,4 +1,4 @@
-/* Colour tokens. Bots keep their slot everywhere: quant = series-1, sentiment = series-2 (validated as a
+/* Colour tokens. Bots keep their slot everywhere: daytrader = series-1, sentiment = series-2 (validated as a
    pair in light and dark with the dataviz palette checker). Status colours are only for job states. */
 :root {
   color-scheme: light;
@@ -11,7 +11,7 @@
   --axis: #c3c2b7;
   --border: rgba(11, 11, 11, 0.1);
   --hover: rgba(11, 11, 11, 0.04);
-  --quant: #2a78d6;
+  --daytrader: #2a78d6;
   --sentiment: #eb6834;
   --benchmark: #898781;
   --up: #006300;
@@ -35,7 +35,7 @@
     --axis: #383835;
     --border: rgba(255, 255, 255, 0.1);
     --hover: rgba(255, 255, 255, 0.05);
-    --quant: #3987e5;
+    --daytrader: #3987e5;
     --sentiment: #d95926;
     --benchmark: #898781;
     --up: #0ca30c;
@@ -55,7 +55,7 @@
   --axis: #383835;
   --border: rgba(255, 255, 255, 0.1);
   --hover: rgba(255, 255, 255, 0.05);
-  --quant: #3987e5;
+  --daytrader: #3987e5;
   --sentiment: #d95926;
   --benchmark: #898781;
   --up: #0ca30c;
@@ -164,7 +164,7 @@ h3.sub { font-size: 13px; font-weight: 600; color: var(--ink-2); margin: 0 0 8px
 .diff .hunk, .diff .head { color: var(--muted); }
 
 /* The memory ladder: one hue light -> dark for hypothesis -> supported -> confirmed; retired grey with stripes. */
-.ladder { display: flex; flex-direction: column; gap: 4px; --accent: var(--quant); }
+.ladder { display: flex; flex-direction: column; gap: 4px; --accent: var(--daytrader); }
 .ladder-row { display: grid; grid-template-columns: minmax(0, 300px) 1fr; gap: 12px; align-items: center; background: none;
               border: 0; padding: 3px 4px; border-radius: 6px; cursor: pointer; text-align: left; }
 .ladder-row:hover, .ladder-row.on { background: var(--hover); }

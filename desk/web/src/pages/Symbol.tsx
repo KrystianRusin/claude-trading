@@ -75,7 +75,7 @@ function SymbolView({ sym }: { sym: string }) {
     time: t.entry_date ?? t.date, above: t.side === "short", color: BOT_COLOR[t.bot],
     text: `${BOT_LABEL[t.bot][0]} ${t.side === "long" ? "long" : "short"}`,
   })), [s, start]);
-  const picked = trade.match(/^(quant|sentiment)-(\d+)$/);
+  const picked = trade.match(/^(daytrader|sentiment)-(\d+)$/);
   return (
     <div className="stack">
       <div className="row" style={{ justifyContent: "space-between" }}>
@@ -85,7 +85,7 @@ function SymbolView({ sym }: { sym: string }) {
       {!s ? <Loading error={res.error} /> : (
         <>
           <div className="grid two">
-            {(["quant", "sentiment"] as BotName[]).map((bot) => {
+            {(["daytrader", "sentiment"] as BotName[]).map((bot) => {
               const b = s.bots[bot];
               return (
                 <div className="card" key={bot}>
@@ -109,7 +109,7 @@ function SymbolView({ sym }: { sym: string }) {
               {bars.data ? <PriceChart bars={bars.data.bars} markers={markers} format={price}
                                        label={`${sym} daily prices with each bot's entries marked`} />
                 : <Loading error={bars.error} />}
-              <div className="muted small">Daily bars saved by the sentiment bot. Arrows mark entries: Q for Quant, S for Sentiment.</div>
+              <div className="muted small">Daily bars saved by the sentiment bot. Arrows mark entries: D for Day trader, S for Sentiment.</div>
             </div>
           )}
           {scoresOn && (
@@ -142,7 +142,7 @@ function SymbolView({ sym }: { sym: string }) {
           )}
           {s.signals.length > 0 && (
             <div className="card">
-              <h2>Quant's signals</h2>
+              <h2>Day trader's signals</h2>
               <p className="small" style={{ margin: 0 }}>{s.signals.length} in the last {DAYS} days, {s.signals.filter((x) => x.entered).length} entered:
                 {" "}{s.signals.slice(-12).map((x) => `${x.date.slice(5)} ${x.side ?? ""}${x.entered ? "" : " (skipped)"}`).join(", ")}</p>
             </div>

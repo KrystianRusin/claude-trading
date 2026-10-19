@@ -15,8 +15,8 @@ from logger import TradeLog
 from broker import FILLED, NEW, Order, Position
 from test_logger import row
 
-# The core migrations are byte-identical in claude-sentiment-trading. Change both copies together,
-# then update these hashes in both repos.
+# The core migrations are byte-identical in sentiment/migrations. Change both copies together, then
+# update these hashes in both projects' tests.
 CORE_SHA256 = {
     "001_core.sql": "07ee2f1a050a5fca03d6c8bcd7ba56ced6fbb9f56addf6e799e4519142593581",
     "002_dashboard.sql": "859a3602ba3a4e4e6274d22450b791222cf56011b824198473bdcb2f59299b05",
@@ -31,10 +31,10 @@ def test_core_schema_is_the_shared_one():
         assert hashlib.sha256((db.MIGRATIONS / name).read_bytes()).hexdigest() == sha, name
 
 
-def test_migration_numbers_are_unique_and_quant_owns_200_up():
+def test_migration_numbers_are_unique_and_daytrader_owns_200_up():
     numbers = [n for n, _ in db.migrations()]
     assert len(numbers) == len(set(numbers)) and numbers[0] == 1
-    assert all(n < 100 or n >= 200 for n in numbers)  # 1-99 core, 100-199 sentiment, 200+ quant
+    assert all(n < 100 or n >= 200 for n in numbers)  # 1-99 core, 100-199 sentiment, 200+ day trader
 
 
 def test_migrations_are_additive():

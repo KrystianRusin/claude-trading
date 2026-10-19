@@ -1,9 +1,11 @@
 # claude-sentiment-trading
 
+Part of [claude-trading](../README.md).
+
 A paper swing trader driven by news. Each morning Claude scores the news on the most liquid US
 stocks and proposes a few trade ideas. Fixed rules size, stop and exit every trade, and positions
 are held for days. It runs on a Raspberry Pi next to
-[claude-quant](https://github.com/KrystianRusin/claude-quant), on its own Alpaca paper account, so
+the [day trader](../daytrader), on its own Alpaca paper account, so
 the two approaches can be compared over the same period.
 
 Its results are live on the dashboard: https://krystianrusin.github.io/desk/
@@ -39,7 +41,7 @@ covers what followed older news, so replays never ask it to score past news.
 
 ## Memory and hypotheses
 
-The learning loop follows claude-quant's, but Python enforces every rule because Claude here only
+The learning loop follows the day trader's, but Python enforces every rule because Claude here only
 returns JSON.
 
 Each evening Claude gets the day report, its active memory entries with their latest evidence,
@@ -87,7 +89,7 @@ the attention of the session before a score or trade (`volume_z`, `news_z`, `wik
 ## Safety
 
 - Paper only. The Alpaca client refuses non-paper endpoints, any live account needs `ALLOW_LIVE=1`,
-  and every job checks it isn't using claude-quant's account.
+  and every job checks it isn't using the day trader's account.
 - `data/config.json` is validated against `defaults/config_bounds.json` on every start.
 - Hard caps in code: 30 orders a day, 10% of equity per position, no stock under $5, shorts only
   when easy to borrow.
@@ -101,24 +103,24 @@ the attention of the session before a score or trade (`volume_z`, `news_z`, `wik
 Everything the system writes lives in the gitignored `data/` folder, including scores, memory,
 journal and trade logs. Trades, orders and daily summaries are written as CSV and mirrored into
 SQLite (`data/trader.db`), which also holds equity snapshots, order states, job runs, versions and
-daily bars. It feeds [claude-desk](https://github.com/KrystianRusin/claude-desk), the dashboard.
-The core schema in `migrations/` is shared with claude-quant and pinned by hash in both repos.
+daily bars. It feeds the dashboard in [`desk/`](../desk).
+The core schema in `migrations/` is shared with the day trader and pinned by hash in both projects.
 
-The broker layer is the same design as claude-quant's: a neutral interface in `src/broker.py` with
+The broker layer is the same design as the day trader's: a neutral interface in `src/broker.py` with
 data and execution roles, an Alpaca backend, an Interactive Brokers stub, and a contract test suite
 every backend has to pass.
 
 ## Deployment
 
-The Pi pulls changes; nothing pushes to it. GitHub Actions runs the tests on every push.
-`scripts/deploy.sh` runs every 5 minutes, fast-forwards to new commits that passed CI, migrates the
-database, runs the checks and rolls back if they fail. Jobs and deploys share a lock, so code never
-changes under a running job. The schedule lives in `scripts/cron.sh` and is reinstalled on every
-deploy.
+The Pi pulls new commits itself; nothing pushes to it. The deploy, CI and the cron installer are shared
+by the whole repo; see the [top-level README](../README.md#deployment). A commit that changes
+`sentiment/` is deployed once CI passes: the database is migrated, the checks run, and it rolls back if
+they fail. Jobs and deploys share this project's lock, so code never changes under a running job. The
+schedule lives in `scripts/cron.sh` and is reinstalled on every deploy.
 
 ## Setup
 
-You need a second Alpaca paper account, separate from claude-quant's. On the Pi:
+You need a second Alpaca paper account, separate from the day trader's. On the Pi:
 
 ```bash
 scripts/setup.sh
@@ -139,7 +141,7 @@ All commands run as `.venv/bin/python src/<name>.py`.
 | `trader.py replay --from DATE --to DATE` | Reruns the rules over saved scores and daily bars. |
 | `score.py run \| show [DATE]` | Scores today's news and runs the desk, or prints a score file. |
 | `analyze.py [--day DATE]` | Writes the daily report, or `--report` for a performance report. |
-| `compare.py` | Compares with claude-quant over overlapping days. |
+| `compare.py` | Compares with the day trader over overlapping days. |
 | `review.py run \| show` | Runs the evening review, or prints the memory. |
 | `attention.py morning \| show [SYMBOL]` | Collects attention and writes the discovery list, or prints the latest features. |
 
@@ -154,7 +156,7 @@ since the start).
 | `prompts/` | Instructions for scoring, the desk and the review |
 | `defaults/` | Seed config and watchlist, and the config's hard limits |
 | `migrations/` | Database schema |
-| `scripts/` | Setup, deploy, cron, backup |
+| `scripts/` | Setup, cron, backup |
 | `tests/` | Test suite, see [tests/README.md](tests/README.md) |
 
 ## Tests

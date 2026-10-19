@@ -33,22 +33,22 @@ function DisagreeCard({ days, period }: { days: number; period: string }) {
   const res = useApi<Disagreements>(`/api/disagreements${qs({ days })}`);
   if (!res.data) return <div className="card"><h2>When they disagree</h2><Loading error={res.error} /></div>;
   const d = res.data;
-  const tally = (bot: BotName, t: Disagreements["quant"]) => t.traded
+  const tally = (bot: BotName, t: Disagreements["daytrader"]) => t.traded
     ? <>{BOT_LABEL[bot]} traded {t.traded} of them and won {t.won} ({pct((t.won / t.traded) * 100, 0, false)}), averaging {num(t.avg_r)}R.</>
     : <>{BOT_LABEL[bot]} traded none of them.</>;
   return (
     <div className="card">
       <h2 style={{ marginBottom: 4 }}>When they disagree</h2>
       <p className="muted small" style={{ margin: "0 0 12px" }}>
-        Days when Quant's signal on a symbol pointed one way and Sentiment's news score for that day pointed the other.
-        {d.items.length > 0 && <> {d.items.length} times {period}. {tally("quant", d.quant)} {tally("sentiment", d.sentiment)}</>}
+        Days when Day trader's signal on a symbol pointed one way and Sentiment's news score for that day pointed the other.
+        {d.items.length > 0 && <> {d.items.length} times {period}. {tally("daytrader", d.daytrader)} {tally("sentiment", d.sentiment)}</>}
       </p>
       <DataTable rows={d.items} empty="They have not disagreed in this period." columns={[
         { key: "d", label: "Day", render: (i) => i.date, sort: (i) => i.date },
         { key: "s", label: "Symbol", render: (i) => <SymbolLink symbol={i.symbol} />, sort: (i) => i.symbol },
-        { key: "q", label: "Quant", render: (i) => <>{i.quant}{!i.quant_entered && <span className="badge">skipped</span>}</> },
+        { key: "q", label: "Day trader", render: (i) => <>{i.daytrader}{!i.daytrader_entered && <span className="badge">skipped</span>}</> },
         { key: "n", label: "Sentiment", render: (i) => <>{i.sentiment} <span className="muted small">{i.score > 0 ? "+" : ""}{i.score} × {num(i.confidence)}</span></> },
-        { key: "qr", label: "Quant's result", num: true, render: (i) => result(i.quant_r), sort: (i) => i.quant_r },
+        { key: "qr", label: "Day trader's result", num: true, render: (i) => result(i.daytrader_r), sort: (i) => i.daytrader_r },
         { key: "sr", label: "Sentiment's result", num: true, render: (i) => result(i.sentiment_r), sort: (i) => i.sentiment_r },
       ]} />
     </div>
@@ -84,7 +84,7 @@ export default function Compare({ sections }: { sections: string[] }) {
               <div style={{ fontSize: 22, fontWeight: 600 }}>{d.verdict[0].toUpperCase() + d.verdict.slice(1)}</div>
               {d.mean_diff_pct !== undefined ? (
                 <p className="muted" style={{ marginBottom: 0 }}>
-                  Over {d.days} days both traded ({d.first} to {d.last}), Sentiment's daily return minus Quant's averaged{" "}
+                  Over {d.days} days both traded ({d.first} to {d.last}), Sentiment's daily return minus Day trader's averaged{" "}
                   {pct(d.mean_diff_pct, 3)}, with a 95% range of {pct(d.low_pct, 3)} to {pct(d.high_pct, 3)}.
                   {d.correlation !== null && d.correlation !== undefined && <> Their daily returns correlate at {num(d.correlation)}.</>}
                 </p>

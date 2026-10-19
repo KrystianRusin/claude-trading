@@ -1,0 +1,118 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  # Which projects a push or pull request touched. Only those are tested. A change to this workflow, the
+  # root scripts or shared/ tests everything; the dashboard's tests also read the bots' migrations.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      python: ${{ steps.diff.outputs.python }}
+      web: ${{ steps.diff.outputs.web }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Root scripts syntax
+        run: for f in scripts/*.sh; do bash -n "$f"; done
+      - id: diff
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ -n "$BASE" ] && git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            files=$(git diff --name-only "$BASE" "$GITHUB_SHA")
+          else
+            files=".github/"  # a new branch or a rewritten history: test everything
+          fi
+          echo "$files"
+          all='^(\.github/|scripts/|shared/)'
+          touched() { grep -qE "$1" <<<"$files"; }
+          projects=()
+          touched "$all|^daytrader/" && projects+=(daytrader)
+          touched "$all|^sentiment/" && projects+=(sentiment)
+          desk=0
+          touched "$all|^desk/|^(daytrader|sentiment)/migrations/" && { projects+=(desk); desk=1; }
+          echo "python=$(printf '%s\n' "${projects[@]}" | jq -Rnc '[inputs | select(length > 0)]')" >> "$GITHUB_OUTPUT"
+          echo "web=$desk" >> "$GITHUB_OUTPUT"
+
+  test:
+    needs: changes
+    if: needs.changes.outputs.python != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        project: ${{ fromJSON(needs.changes.outputs.python) }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ matrix.project }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"  # matches the Raspberry Pi
+          cache: pip
+          cache-dependency-path: ${{ matrix.project }}/requirements.txt
+      - run: pip install -r requirements.txt
+      - name: Shell syntax
+        run: for f in $(git ls-files '*.sh'); do bash -n "$f"; done
+      - name: Tests
+        run: python -m pytest -q
+
+  web:
+    needs: changes
+    if: needs.changes.outputs.web == '1'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: desk/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: desk/web/package-lock.json
+      - run: npm ci
+      - name: Generated API types are current
+        run: npm run gen:types && git diff --exit-code src/schema.d.ts
+      - name: Typecheck and build
+        run: npm run build
+      - run: tar -czf web.tar.gz -C dist .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web
+          path: desk/web/web.tar.gz
+
+  # The Pi cannot build the frontend quickly, so each version of desk/ gets its build as a release asset,
+  # build-<first 12 of the desk/ tree hash>/web.tar.gz, which scripts/deploy.sh downloads. Keyed by the tree,
+  # not the commit, a commit that leaves desk/ alone needs no new build. Only the newest 5 are kept.
+  publish:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [test, web]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: web
+      - name: Release the build
+        run: |
+          tree=$(git rev-parse "$GITHUB_SHA:desk")
+          tag="build-${tree::12}"
+          gh release view "$tag" >/dev/null 2>&1 && { echo "$tag exists"; exit 0; }
+          gh release create "$tag" web.tar.gz --target "$GITHUB_SHA" --prerelease --title "web build ${tree::12}" \
+            --notes "Frontend build of desk/ tree ${tree} (commit ${GITHUB_SHA}), fetched by the Pi's deploy."
+      - name: Keep the newest 5 builds
+        run: |
+          gh release list --limit 100 --json tagName,createdAt \
+            --jq '[.[] | select(.tagName | startswith("build-"))] | sort_by(.createdAt) | reverse | .[5:] | .[].tagName' |
+          while read -r tag; do gh release delete "$tag" --cleanup-tag --yes; done

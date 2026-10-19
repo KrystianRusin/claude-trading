@@ -8,7 +8,7 @@ import { duration } from "../format";
 import { usePublic } from "../sections";
 import { useParam, useSetParams } from "../url";
 
-const BOTS = ["quant", "sentiment"] as const;
+const BOTS = ["daytrader", "sentiment"] as const;
 const KIND: Record<string, string> = { config: "config", strategy: "strategy", watchlist: "watchlist", prompt: "prompt", memory: "memory" };
 
 function Day({ d, bot }: { d: AgentDay; bot: BotName }) {
@@ -42,7 +42,7 @@ function Day({ d, bot }: { d: AgentDay; bot: BotName }) {
 }
 
 export default function Agent() {
-  const [bot] = useParam<BotName>("bot", "quant", BOTS);
+  const [bot] = useParam<BotName>("bot", "daytrader", BOTS);
   const set = useSetParams();
   const res = useApi<AgentAnswer>(`/api/agent${qs({ bot })}`);
   const days = res.data?.bot === bot ? res.data.days : undefined;
@@ -51,12 +51,12 @@ export default function Agent() {
       <div>
         <h1>Agent activity</h1>
         <p className="lede">What each bot did after its sessions over the last 30 days: its review, what it changed, how its
-          memory moved, and for Quant whether the automated guard accepted the changes. The guard checks every change against
+          memory moved, and for Day trader whether the automated guard accepted the changes. The guard checks every change against
           the rules and reverts the review if any fails.</p>
       </div>
       <div className="filters">
-        <Segmented label="Bot" value={bot} onChange={(b) => set({ bot: b === "quant" ? null : b })}
-                   options={[{ value: "quant", label: "Quant" }, { value: "sentiment", label: "Sentiment" }]} />
+        <Segmented label="Bot" value={bot} onChange={(b) => set({ bot: b === "daytrader" ? null : b })}
+                   options={[{ value: "daytrader", label: "Day trader" }, { value: "sentiment", label: "Sentiment" }]} />
       </div>
       {!days ? <Loading error={res.error} /> : !days.length ? <div className="empty">Nothing in the last 30 days.</div> : (
         <div className="timeline">{days.map((d) => <Day key={d.date} d={d} bot={bot} />)}</div>

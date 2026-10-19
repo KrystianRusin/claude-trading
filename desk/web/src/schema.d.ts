@@ -473,7 +473,7 @@ export interface components {
              * Bot
              * @enum {string}
              */
-            bot: "quant" | "sentiment";
+            bot: "daytrader" | "sentiment";
             /** Days */
             days: components["schemas"]["AgentDay"][];
         };
@@ -714,8 +714,8 @@ export interface components {
         };
         /** Disagree */
         Disagree: {
-            /** Quant */
-            quant: string;
+            /** Daytrader */
+            daytrader: string;
             /** Sentiment */
             sentiment: string;
             /** Symbol */
@@ -727,12 +727,12 @@ export interface components {
             confidence: number;
             /** Date */
             date: string | null;
-            /** Quant */
-            quant: string;
-            /** Quant Entered */
-            quant_entered: boolean;
-            /** Quant R */
-            quant_r: number | null;
+            /** Daytrader */
+            daytrader: string;
+            /** Daytrader Entered */
+            daytrader_entered: boolean;
+            /** Daytrader R */
+            daytrader_r: number | null;
             /** Score */
             score: number;
             /** Sentiment */
@@ -746,9 +746,9 @@ export interface components {
         Disagreements: {
             /** Days */
             days: number;
+            daytrader: components["schemas"]["Tally"];
             /** Items */
             items: components["schemas"]["DisagreementItem"][];
-            quant: components["schemas"]["Tally"];
             sentiment: components["schemas"]["Tally"];
         };
         /** DiscoveredName */
@@ -816,7 +816,7 @@ export interface components {
              * Bot
              * @enum {string}
              */
-            bot: "quant" | "sentiment";
+            bot: "daytrader" | "sentiment";
             /** Daily */
             daily: components["schemas"]["DailyPoint"][];
             intraday: components["schemas"]["Intraday"];
@@ -1006,7 +1006,7 @@ export interface components {
              * Bot
              * @enum {string}
              */
-            bot: "quant" | "sentiment";
+            bot: "daytrader" | "sentiment";
             /** History */
             history: components["schemas"]["HoldingsPoint"][];
             /** Positions */
@@ -1024,15 +1024,15 @@ export interface components {
         };
         /** Hot */
         Hot: {
+            /** Daytrader */
+            daytrader: components["schemas"]["HotDaytrader"][];
             /** Disagree */
             disagree?: components["schemas"]["Disagree"][] | null;
-            /** Quant */
-            quant: components["schemas"]["HotQuant"][];
             /** Sentiment */
             sentiment?: components["schemas"]["HotSentiment"][] | null;
         };
-        /** HotQuant */
-        HotQuant: {
+        /** HotDaytrader */
+        HotDaytrader: {
             /** Entries */
             entries: number;
             /** New On Watchlist */
@@ -1096,7 +1096,7 @@ export interface components {
              * Bot
              * @enum {string}
              */
-            bot: "quant" | "sentiment";
+            bot: "daytrader" | "sentiment";
             /** Changes */
             changes: components["schemas"]["Change"][];
             /** Min Trades */
@@ -1137,7 +1137,7 @@ export interface components {
              * Bot
              * @enum {string}
              */
-            bot: "quant" | "sentiment";
+            bot: "daytrader" | "sentiment";
             /** Dates */
             dates: string[];
             entry: components["schemas"]["JournalEntry"] | null;
@@ -1180,7 +1180,7 @@ export interface components {
              * Bot
              * @enum {string}
              */
-            bot: "quant" | "sentiment";
+            bot: "daytrader" | "sentiment";
             /** Counts */
             counts: components["schemas"]["MemoryCount"][];
             /** Entries */
@@ -1262,7 +1262,7 @@ export interface components {
              * Name
              * @enum {string}
              */
-            name: "quant" | "sentiment";
+            name: "daytrader" | "sentiment";
         };
         /** NewsDay */
         NewsDay: {
@@ -1277,7 +1277,7 @@ export interface components {
              * Bot
              * @enum {string}
              */
-            bot: "quant" | "sentiment";
+            bot: "daytrader" | "sentiment";
             /** Date */
             date: string;
             /** Equity */
@@ -1303,7 +1303,7 @@ export interface components {
              * Bot
              * @enum {string}
              */
-            bot: "quant" | "sentiment";
+            bot: "daytrader" | "sentiment";
             /** Days */
             days: string[];
         };
@@ -1484,7 +1484,7 @@ export interface components {
              * Bot
              * @enum {string}
              */
-            bot: "quant" | "sentiment";
+            bot: "daytrader" | "sentiment";
             /** Pnl */
             pnl: number;
             /** Symbol */
@@ -1539,7 +1539,7 @@ export interface components {
              * Bot
              * @enum {string}
              */
-            bot: "quant" | "sentiment";
+            bot: "daytrader" | "sentiment";
             /** Confidence */
             confidence?: number | null;
             /** Config Version */
@@ -1730,7 +1730,7 @@ export interface operations {
     agent_api_agent_get: {
         parameters: {
             query: {
-                bot: "quant" | "sentiment";
+                bot: "daytrader" | "sentiment";
             };
             header?: never;
             path?: never;
@@ -2012,7 +2012,7 @@ export interface operations {
     journal_api_journal_get: {
         parameters: {
             query: {
-                bot: "quant" | "sentiment";
+                bot: "daytrader" | "sentiment";
                 day?: string | null;
             };
             header?: never;
@@ -2044,7 +2044,7 @@ export interface operations {
     memory_api_memory_get: {
         parameters: {
             query: {
-                bot: "quant" | "sentiment";
+                bot: "daytrader" | "sentiment";
             };
             header?: never;
             path?: never;
@@ -2137,7 +2137,7 @@ export interface operations {
     replay_api_replay_get: {
         parameters: {
             query: {
-                bot: "quant" | "sentiment";
+                bot: "daytrader" | "sentiment";
                 day: string;
             };
             header?: never;
@@ -2169,7 +2169,7 @@ export interface operations {
     replay_days_api_replay_days_get: {
         parameters: {
             query: {
-                bot: "quant" | "sentiment";
+                bot: "daytrader" | "sentiment";
             };
             header?: never;
             path?: never;
@@ -2304,7 +2304,7 @@ export interface operations {
     trade_api_trade_get: {
         parameters: {
             query: {
-                bot: "quant" | "sentiment";
+                bot: "daytrader" | "sentiment";
                 id: number;
             };
             header?: never;
@@ -2336,7 +2336,7 @@ export interface operations {
     trades_api_trades_get: {
         parameters: {
             query?: {
-                bot?: ("quant" | "sentiment") | null;
+                bot?: ("daytrader" | "sentiment") | null;
                 symbol?: string | null;
                 strategy?: string | null;
                 exit_reason?: string | null;
@@ -2418,7 +2418,7 @@ export interface operations {
     version_diff_api_versions_diff_get: {
         parameters: {
             query: {
-                bot: "quant" | "sentiment";
+                bot: "daytrader" | "sentiment";
                 id: number;
             };
             header?: never;
@@ -2450,7 +2450,7 @@ export interface operations {
     version_impact_api_versions_impact_get: {
         parameters: {
             query: {
-                bot: "quant" | "sentiment";
+                bot: "daytrader" | "sentiment";
             };
             header?: never;
             path?: never;

@@ -5,7 +5,7 @@ import { Loading, Segmented } from "../components/ui";
 import { BOT_COLOR, when } from "../format";
 import { useParam, useSetParams } from "../url";
 
-const BOTS = ["quant", "sentiment"] as const;
+const BOTS = ["daytrader", "sentiment"] as const;
 const ORDER: MemoryStatus[] = ["confirmed", "supported", "hypothesis", "retired"];
 
 function EntryCard({ e }: { e: MemoryEntry }) {
@@ -88,7 +88,7 @@ function JournalCard({ bot }: { bot: BotName }) {
 }
 
 export default function Notebook({ sections }: { sections: string[] }) {
-  const [bot] = useParam<BotName>("bot", "quant", BOTS);
+  const [bot] = useParam<BotName>("bot", "daytrader", BOTS);
   const set = useSetParams();
   return (
     <div className="stack">
@@ -98,8 +98,8 @@ export default function Notebook({ sections }: { sections: string[] }) {
           it has learned, and how sure it is. This is how they learn between sessions.</p>
       </div>
       <div className="filters">
-        <Segmented label="Bot" value={bot} onChange={(b) => set({ bot: b === "quant" ? null : b, day: null, entry: null })}
-                   options={[{ value: "quant", label: "Quant" }, { value: "sentiment", label: "Sentiment" }]} />
+        <Segmented label="Bot" value={bot} onChange={(b) => set({ bot: b === "daytrader" ? null : b, day: null, entry: null })}
+                   options={[{ value: "daytrader", label: "Day trader" }, { value: "sentiment", label: "Sentiment" }]} />
       </div>
       {sections.includes("memory") && <MemoryCard bot={bot} />}
       {sections.includes("journal") && <JournalCard bot={bot} />}

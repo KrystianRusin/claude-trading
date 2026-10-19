@@ -8,7 +8,7 @@ import { BOT_COLOR, money, num, pct, signClass, signedMoney, when } from "../for
 import { SymbolLink } from "../sections";
 
 const EMPTY: Record<string, string> = {
-  quant: "Flat. Quant closes every position by 15:45, so it holds nothing overnight.",
+  daytrader: "Flat. Day trader closes every position by 15:45, so it holds nothing overnight.",
   sentiment: "Flat: no open positions right now.",
 };
 
@@ -103,7 +103,7 @@ export default function Holdings() {
         <h1>Holdings</h1>
         <p className="lede">What each bot holds right now and how those positions are doing. Unrealized P&L is the gain or
           loss on paper if each position were closed at the latest price. Prices update with each snapshot: every minute for
-          Quant while it trades, every 5 minutes for Sentiment during market hours.</p>
+          Day trader while it trades, every 5 minutes for Sentiment during market hours.</p>
       </div>
       {books.length ? books.map((b) => <BookCard key={`${b.bot}-${b.book}`} b={b} />)
         : <div className="empty">No snapshots yet.</div>}

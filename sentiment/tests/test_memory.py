@@ -44,7 +44,7 @@ def test_score_outcomes_and_calibration():
     assert cal["-1"]["hit_rate"] == 0.0 and cal["+0"]["hit_rate"] is None
 
 
-PAPER_TRADER_LIFETIME_SECTIONS = ["## All time", "## Equity", "## Records", "## By month", "## By year",
+DAYTRADER_LIFETIME_SECTIONS = ["## All time", "## Equity", "## Records", "## By month", "## By year",
                                   "## By strategy version", "## By config version"]
 
 
@@ -62,14 +62,14 @@ def trades_frame(tmp_path):
     return analyze.filter_trades(read_trades_frame(book.trades_path))
 
 
-def test_lifetime_matches_the_paper_trader_layout(tmp_path):
+def test_lifetime_matches_the_day_trader_layout(tmp_path):
     trades = trades_frame(tmp_path)
     summary = pd.DataFrame({"date": DAYS[:3], "equity_start": [100_000.0, 101_000.0, 100_000.0],
                             "equity_end": [101_000.0, 100_000.0, 100_200.0], "halted": [False, False, True]})
     holdings = [{"unrealized_pnl": "25.5"}]
     text = lifetime.build_lifetime(trades, summary, 1.25, today=DAYS[7], holdings=holdings)
     headings = [ln for ln in text.splitlines() if ln.startswith("## ")]
-    assert headings[:7] == PAPER_TRADER_LIFETIME_SECTIONS
+    assert headings[:7] == DAYTRADER_LIFETIME_SECTIONS
     assert headings[7:] == ["## By score", "## By confidence", "## By memory version", "## Score calibration"]
     assert "- Running since 2026-09-01 (3 sessions, 2 with trades, 1 halted)" in text
     assert "- Trades: 2 (2 wins, 0 losses, win rate 100.0%)" in text

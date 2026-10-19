@@ -1,0 +1,3 @@
+# The deploy's own state (scripts/deploy.sh); each project ignores its own data/ and .venv/
+/data/
+.env

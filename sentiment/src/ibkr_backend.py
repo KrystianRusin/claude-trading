@@ -16,7 +16,7 @@ It has to pass tests/test_broker_contract.py before it trades.
 Settings, from the environment or .env:
   IBKR_HOST        default 127.0.0.1
   IBKR_PORT        default 4002 (IB Gateway paper)
-  IBKR_CLIENT_ID   default 18 (the paper-trader uses 17; each connection needs its own)
+  IBKR_CLIENT_ID   default 18 (the day trader uses 17; each connection needs its own)
   IBKR_ACCOUNT     the account id (DU... for paper); when set it decides paper vs live
 """
 import os

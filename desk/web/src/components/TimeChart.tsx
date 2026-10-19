@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from "react";
 export interface Series {
   id: string;
   label: string;
-  color: string; // a CSS value such as var(--quant)
+  color: string; // a CSS value such as var(--daytrader)
   points: { time: string; value: number }[]; // time: YYYY-MM-DD or an ISO timestamp with offset
   muted?: boolean; // a reference line (the benchmark): thinner
 }

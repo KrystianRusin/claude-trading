@@ -12,7 +12,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 Num = float | None
-BotName = Literal["quant", "sentiment"]
+BotName = Literal["daytrader", "sentiment"]
 
 
 class Model(BaseModel):
@@ -179,7 +179,7 @@ class Symbols(Model):
     symbols: list[SymbolRow]
 
 
-class HotQuant(Model):
+class HotDaytrader(Model):
     symbol: str
     signals: int
     entries: int
@@ -197,12 +197,12 @@ class HotSentiment(Model):
 
 class Disagree(Model):
     symbol: str
-    quant: str
+    daytrader: str
     sentiment: str
 
 
 class Hot(Model):
-    quant: list[HotQuant]
+    daytrader: list[HotDaytrader]
     sentiment: list[HotSentiment] | None = None
     disagree: list[Disagree] | None = None
 
@@ -328,12 +328,12 @@ class Compare(Model):
 class DisagreementItem(Model):
     date: str | None
     symbol: str
-    quant: str
-    quant_entered: bool
+    daytrader: str
+    daytrader_entered: bool
     sentiment: str
     score: float
     confidence: float
-    quant_r: Num
+    daytrader_r: Num
     sentiment_r: Num
 
 
@@ -346,7 +346,7 @@ class Tally(Model):
 class Disagreements(Model):
     days: int
     items: list[DisagreementItem]
-    quant: Tally
+    daytrader: Tally
     sentiment: Tally
 
 

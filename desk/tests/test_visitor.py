@@ -30,7 +30,7 @@ def test_holdings_unrealized_today_stops_and_entry(settings):
     assert tsla["stop_distance_pct"] == pytest.approx(9.375)
     assert s["totals"]["unrealized_pnl"] == 500 and s["totals"]["today_pnl"] == 300 and s["totals"]["positions"] == 2
     assert [p["unrealized_pnl"] for p in s["history"]] == [200, 500]
-    q = h["quant"]["positions"][0]
+    q = h["daytrader"]["positions"][0]
     assert (q["symbol"], q["stop_price"], q["target_price"]) == ("SPY", 99, 103)
 
 
@@ -41,24 +41,24 @@ def test_holdings_leave_out_scores_when_scores_are_private(bots):
 
 def test_replay_of_today_hides_positions_and_fills_unless_public(bots):
     client = TestClient(app_mod.create_app(write_settings(bots, sections={"positions": False})))
-    today = client.get(f"/api/replay?bot=quant&day={TODAY}").json()
+    today = client.get(f"/api/replay?bot=daytrader&day={TODAY}").json()
     assert len(today["equity"]) == 6 and today["frames"] == [] and today["fills"] == [] and not today["positions_shown"]
     past = client.get(f"/api/replay?bot=sentiment&day={DAYS[-2]}").json()
     assert past["over"] and past["frames"][0]["positions"][0]["symbol"] == "NKE"
     client = TestClient(app_mod.create_app(write_settings(bots)))
-    today = client.get(f"/api/replay?bot=quant&day={TODAY}").json()
+    today = client.get(f"/api/replay?bot=daytrader&day={TODAY}").json()
     assert len(today["frames"]) == 6 and today["fills"] == [
         {"ts": f"{TODAY}T09:46:00-04:00", "symbol": "SPY", "side": "buy", "qty": 10, "price": 100,
          "order_type": "market", "leg": False}]
 
 
 def test_replay_days_need_more_than_one_snapshot(settings):
-    assert views.replay_days(settings, "quant")["days"] == [TODAY.isoformat()]
+    assert views.replay_days(settings, "daytrader")["days"] == [TODAY.isoformat()]
     assert views.replay_days(settings, "sentiment")["days"] == []
 
 
 def test_replay_lists_the_trades_closed_that_day(settings):
-    r = views.replay(settings, "quant", DAYS[0])
+    r = views.replay(settings, "daytrader", DAYS[0])
     assert [(t["symbol"], t["pnl_usd"]) for t in r["trades"]] == [("SPY", 120)]
     assert r["equity_start"] == 100_000 and r["equity"] == []
 
@@ -71,7 +71,7 @@ def test_after_change():
 
 
 def test_version_impact_before_and_after(settings):
-    changes = {(c["kind"], c["effective_from"][:10]): c for c in views.version_impact(settings, "quant")["changes"]}
+    changes = {(c["kind"], c["effective_from"][:10]): c for c in views.version_impact(settings, "daytrader")["changes"]}
     second = changes[("memory", DAYS[4].isoformat())]
     # trades entered on DAYS[2..4] fall under the first memory version, DAYS[5..] under the second
     assert second["before"]["trades"] == 3 and second["after"]["trades"] == 2
@@ -93,19 +93,19 @@ def test_verdict_needs_the_minimum_sample_and_a_clear_difference():
 
 def test_version_diff_needs_version_content(bots):
     client = TestClient(app_mod.create_app(write_settings(bots)))
-    assert client.get("/api/versions/diff?bot=quant&id=2").status_code == 404
+    assert client.get("/api/versions/diff?bot=daytrader&id=2").status_code == 404
     client = TestClient(app_mod.create_app(write_settings(bots, sections={"version_content": True})))
-    d = client.get("/api/versions/diff?bot=quant&id=2").json()
+    d = client.get("/api/versions/diff?bot=daytrader&id=2").json()
     assert "-- Status: hypothesis" in d["diff"] and "+- Status: supported" in d["diff"]
-    assert client.get("/api/versions/diff?bot=quant&id=999").status_code == 404
-    impact = client.get("/api/versions/impact?bot=quant").json()["changes"]
+    assert client.get("/api/versions/diff?bot=daytrader&id=999").status_code == 404
+    impact = client.get("/api/versions/impact?bot=daytrader").json()["changes"]
     assert {c["id"]: c["has_diff"] for c in impact}[2] is True
     assert {c["id"]: c["has_diff"] for c in impact}[5] is False  # a removal has no content
 
 
 def test_disagreement_feed(settings):
     feed = views.disagreement_feed(settings)
-    assert [(i["date"], i["symbol"], i["quant"], i["sentiment"]) for i in feed["items"]] == [
+    assert [(i["date"], i["symbol"], i["daytrader"], i["sentiment"]) for i in feed["items"]] == [
         (TODAY.isoformat(), "SPY", "long", "bearish"), (DAYS[-2].isoformat(), "SPY", "long", "bearish")]
     assert "reason" not in json.dumps(feed)
 
@@ -116,7 +116,7 @@ def test_disagreements_need_scores(bots):
 
 
 def test_memory_ladder_from_versions(settings):
-    m = notebook.memory(settings, "quant")
+    m = notebook.memory(settings, "daytrader")
     entries = {e["id"]: e for e in m["entries"]}
     assert [h["status"] for h in entries["M-1"]["history"]] == ["hypothesis", "supported"]
     assert entries["M-2"]["status"] == "retired" and entries["M-2"]["retired_reason"] == "2026-10-09, contradicted"
@@ -127,14 +127,14 @@ def test_memory_ladder_from_versions(settings):
 
 
 def test_quant_memory_parser_ignores_the_template():
-    assert notebook.parse_quant("# Trading memory\n- One entry per lesson, `### M-<number>: <short title>`\n## Active\n") == []
+    assert notebook.parse_daytrader("# Trading memory\n- One entry per lesson, `### M-<number>: <short title>`\n## Active\n") == []
 
 
 def test_journal_dates_and_entries(settings):
-    j = notebook.journal(settings, "quant")
+    j = notebook.journal(settings, "daytrader")
     assert j["dates"] == [TODAY.isoformat(), DAYS[-2].isoformat()] and "SPY broke out" in j["entry"]["text"]
-    assert notebook.journal(settings, "quant", DAYS[-2].isoformat())["entry"]["text"].endswith("Quiet day.")
-    assert notebook.journal(settings, "quant", "../../etc/passwd")["entry"]["date"] == TODAY.isoformat()
+    assert notebook.journal(settings, "daytrader", DAYS[-2].isoformat())["entry"]["text"].endswith("Quiet day.")
+    assert notebook.journal(settings, "daytrader", "../../etc/passwd")["entry"]["date"] == TODAY.isoformat()
 
 
 def test_export_writes_only_public_files_and_the_api_serves_them(bots, export_dir):

@@ -137,11 +137,15 @@ def test_make_execution_applies_live_and_same_account_gates(no_dotenv, monkeypat
 
     monkeypatch.setitem(broker.EXECUTION_BACKENDS, "fake", lambda: AlpacaExecution(trading=FakeTrading()))
     monkeypatch.setenv("BROKER_BACKEND", "fake")
-    monkeypatch.setenv("PAPER_TRADER_ACCOUNT", "PA000TEST")
+    monkeypatch.setenv("DAYTRADER_ACCOUNT", "PA000TEST")
     with pytest.raises(broker.SameAccountError):
         broker.make_execution()
-    monkeypatch.setenv("PAPER_TRADER_ACCOUNT", "none")
+    monkeypatch.setenv("DAYTRADER_ACCOUNT", "none")
     assert broker.make_execution().is_paper()
+    monkeypatch.delenv("DAYTRADER_ACCOUNT")
+    monkeypatch.setenv("PAPER_TRADER_ACCOUNT", "PA000TEST")  # the name before the monorepo still counts
+    with pytest.raises(broker.SameAccountError):
+        broker.make_execution()
 
 
 def test_unknown_backend_is_refused(no_dotenv, monkeypatch):

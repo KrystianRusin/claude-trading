@@ -1,11 +1,11 @@
 import type { BotName } from "./api";
 
-export const BOT_LABEL: Record<BotName, string> = { quant: "Quant", sentiment: "Sentiment" };
+export const BOT_LABEL: Record<BotName, string> = { daytrader: "Day trader", sentiment: "Sentiment" };
 export const BOT_ABOUT: Record<BotName, string> = {
-  quant: "Intraday opening-range strategy, flat by the close",
+  daytrader: "Intraday opening-range strategy, flat by the close",
   sentiment: "News-sentiment swing trades held for days",
 };
-export const BOT_COLOR: Record<BotName, string> = { quant: "var(--quant)", sentiment: "var(--sentiment)" };
+export const BOT_COLOR: Record<BotName, string> = { daytrader: "var(--daytrader)", sentiment: "var(--sentiment)" };
 
 const usd0 = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 const usd2 = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 });

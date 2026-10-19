@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from . import config, export, models, notebook, research, sources, views
 
 WEB_DIR = config.ROOT / "data" / "web" / "current"  # the build deploy.sh downloaded
-Bot = Literal["quant", "sentiment"]
+Bot = Literal["daytrader", "sentiment"]
 DOWNLOAD_NAME = re.compile(r"^[a-z]+\.(csv|parquet)$")
 
 

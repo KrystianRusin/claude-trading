@@ -2,7 +2,7 @@
 status ladder (hypothesis -> supported -> confirmed, or retired).
 
 The memory history comes from the versions table: every time a bot's memory changed, it recorded the whole
-memory. claude-quant keeps it as markdown (data/memory.md), claude-sentiment-trading as a JSON list of
+memory. claude-daytrader keeps it as markdown (data/memory.md), claude-sentiment-trading as a JSON list of
 entries. Only the fields below are served.
 """
 import json
@@ -16,8 +16,8 @@ ENTRY_FIELDS = ("id", "title", "status", "scope", "since", "last_reviewed", "que
 MAX_FIELD = 1000
 MAX_VERSIONS = 2000  # memory versions read for the ladder
 
-QUANT_ENTRY = re.compile(r"^### (M-\d+):[ \t]*(.*)$", re.MULTILINE)
-QUANT_LINE = re.compile(r"^- (Status|Since|Scope|Query|Evidence|Implication|Retired):[ \t]*(.*)$", re.MULTILINE)
+DAYTRADER_ENTRY = re.compile(r"^### (M-\d+):[ \t]*(.*)$", re.MULTILINE)
+DAYTRADER_LINE = re.compile(r"^- (Status|Since|Scope|Query|Evidence|Implication|Retired):[ \t]*(.*)$", re.MULTILINE)
 
 
 def _clip(v):
@@ -27,14 +27,14 @@ def _clip(v):
     return v[:MAX_FIELD] if v else None
 
 
-def parse_quant(text):
-    """Entries of claude-quant's memory.md. Entries under '## Retired' are retired whatever their status says."""
+def parse_daytrader(text):
+    """Entries of claude-daytrader's memory.md. Entries under '## Retired' are retired whatever their status says."""
     retired_at = text.find("\n## Retired")
-    parts = QUANT_ENTRY.split(text)
+    parts = DAYTRADER_ENTRY.split(text)
     out, pos = [], 0
     for entry_id, title, body in zip(parts[1::3], parts[2::3], parts[3::3]):
         pos = text.find(f"### {entry_id}:", pos)
-        fields = {k.lower(): v.strip() for k, v in QUANT_LINE.findall(body.split("\n## ")[0])}
+        fields = {k.lower(): v.strip() for k, v in DAYTRADER_LINE.findall(body.split("\n## ")[0])}
         since, _, reviewed = fields.get("since", "").partition("|")
         status = (fields.get("status") or "hypothesis").split()[0].lower()
         if retired_at != -1 and pos > retired_at:
@@ -65,7 +65,7 @@ def parse_sentiment(text):
     return out
 
 
-PARSERS = {"quant": parse_quant, "sentiment": parse_sentiment}
+PARSERS = {"daytrader": parse_daytrader, "sentiment": parse_sentiment}
 
 
 def memory(settings, bot):

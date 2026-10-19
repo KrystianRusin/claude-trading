@@ -1,4 +1,4 @@
-"""The daily file, and a performance report on request, in the same format as the paper-trader's.
+"""The daily file, and a performance report on request, in the same format as the day trader's.
 
     python src/analyze.py [--day DATE] [--book paper|dry_run|replay] [--no-market]
     python src/analyze.py --report [--book ...] [--since DATE] [--config-version N] [--no-baseline]

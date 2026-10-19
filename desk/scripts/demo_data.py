@@ -3,8 +3,8 @@
     .venv/bin/python scripts/demo_data.py /tmp/desk-demo
     DESK_CONFIG=/tmp/desk-demo/desk.json .venv/bin/python -m desk.app
 
-It writes <dir>/quant/ and <dir>/sentiment/ in the bots' layouts (with the schema copied in
-tests/schema/) and a desk.json pointing at them, with every section public except the error text, so each
+It writes <dir>/daytrader/ and <dir>/sentiment/ in the bots' layouts (with the bots' core schema, from
+daytrader/migrations) and a desk.json pointing at them, with every section public except the error text, so each
 page has something to show. Everything is random: none of it is a real result.
 """
 import csv
@@ -16,11 +16,11 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-SCHEMA = Path(__file__).resolve().parent.parent / "tests" / "schema"
+SCHEMA = Path(__file__).resolve().parents[2] / "daytrader" / "migrations"
 ET = ZoneInfo("America/New_York")
-QUANT_SYMBOLS = ["SPY", "QQQ", "AAPL", "MSFT", "NVDA", "AMD", "TSLA", "META", "AMZN", "IWM"]
+DAYTRADER_SYMBOLS = ["SPY", "QQQ", "AAPL", "MSFT", "NVDA", "AMD", "TSLA", "META", "AMZN", "IWM"]
 SENTIMENT_SYMBOLS = ["NKE", "SBUX", "TSLA", "DIS", "NFLX", "WMT", "COST", "HD", "KO", "UBER", "AMD", "LULU", "NVDA", "META"]
-INTRADAY_DAYS = 5  # the last days get minute (quant) or 5-minute (sentiment) snapshots, for the replay
+INTRADAY_DAYS = 5  # the last days get minute (daytrader) or 5-minute (sentiment) snapshots, for the replay
 
 
 def trading_days(end, n):
@@ -38,7 +38,7 @@ def create(path):
         Path(f"{path}{suffix}").unlink(missing_ok=True)
     conn = sqlite3.connect(path)
     conn.execute("PRAGMA journal_mode=WAL")
-    for f in sorted(SCHEMA.glob("*.sql")):
+    for f in sorted(SCHEMA.glob("0*.sql")):
         conn.executescript(f.read_text())
     conn.execute("INSERT INTO meta VALUES ('schema_version', '3')")
     return conn
@@ -58,7 +58,7 @@ def iso(day, hh, mm):
     return datetime(day.year, day.month, day.day, hh, mm, tzinfo=ET).isoformat()
 
 
-def quant_memory(n_days, rng):
+def daytrader_memory(n_days, rng):
     """memory.md as it might look after n_days of reviews."""
     ladder = [("M-1", "Breakouts after 10:30 rarely reach the target", "entry_minute_after_open >= 60", 4, 18, None),
               ("M-2", "Narrow opening ranges give the best R", "range_pct < 0.5", 8, 30, 44),
@@ -120,13 +120,13 @@ def minute_bars(conn, sym, day, t, rng):
         prev = close
 
 
-def quant(folder, days, rng):
+def daytrader(folder, days, rng):
     conn = create(folder / "trader.db")
     equity, order_n = 100_000.0, 0
     intraday = set(days[-INTRADAY_DAYS:])
     for i, day in enumerate(days):
         start, pnl_day, n, day_trades = equity, 0.0, 0, []
-        for sym in rng.sample(QUANT_SYMBOLS, rng.randint(0, 3)):
+        for sym in rng.sample(DAYTRADER_SYMBOLS, rng.randint(0, 3)):
             side = rng.choice(["long", "short"])
             r = rng.choice([2.0, 2.0, -1.0, -1.0, -1.0, round(rng.uniform(-0.8, 1.5), 2)])
             risk = equity * 0.0025
@@ -171,7 +171,7 @@ def quant(folder, days, rng):
                     updated_at=at(day, exit_m))
             pnl_day += pnl
             n += 1
-        for sym in rng.sample(QUANT_SYMBOLS, 2):
+        for sym in rng.sample(DAYTRADER_SYMBOLS, 2):
             put(conn, "order_events", book="paper", ts=at(day, 20), date=day.isoformat(), event="skip", symbol=sym,
                 side=rng.choice(["long", "short"]), reason="not easy to borrow")
         if day in intraday:
@@ -199,7 +199,7 @@ def quant(folder, days, rng):
             equity_start=round(start, 2), equity_end=equity, halted=0)
         if i >= len(days) - 20:
             (folder / "journal").mkdir(exist_ok=True)
-            (folder / "journal" / f"{day}.md").write_text(journal("quant", day, rng, pnl_day, n))
+            (folder / "journal" / f"{day}.md").write_text(journal("daytrader", day, rng, pnl_day, n))
     today = days[-1]
     jobs = [("trader", 9, 0, 6.8), ("backup", 3, 0, 0.01), ("purge", 2, 50, 0.01)]
     for day in days[-10:]:
@@ -227,7 +227,7 @@ def quant(folder, days, rng):
     (folder / "changelog.md").write_text("\n".join(changelog) + "\n")
     put(conn, "runs", job="deploy", started_at=iso(days[-3], 18, 5), ended_at=iso(days[-3], 18, 6), status="ok", exit_code=0,
         git_sha="3f9c2ab")
-    watch = {"symbols": [{"symbol": s, "added": (today - timedelta(days=2 if s == "AMD" else 60)).isoformat()} for s in QUANT_SYMBOLS]}
+    watch = {"symbols": [{"symbol": s, "added": (today - timedelta(days=2 if s == "AMD" else 60)).isoformat()} for s in DAYTRADER_SYMBOLS]}
     for i, day in enumerate(days[::20]):
         cfg = {"version": 3 + i, "risk_per_trade_pct": round(0.25 + 0.05 * i, 2), "max_trades_per_day": 3 + (i % 2),
                "range_minutes": 15, "force_exit": "15:45", "latest_entry": "10:30" if i < 2 else "10:15"}
@@ -246,7 +246,7 @@ def quant(folder, days, rng):
     for i, day in enumerate(days):
         if i % 4 == 3:
             put(conn, "versions", kind="memory", name="", version=None, sha256=f"m{i}", effective_from=iso(day, 17, 35),
-                reason="review", content=quant_memory(i, rng))
+                reason="review", content=daytrader_memory(i, rng))
     conn.commit()
     conn.close()
 
@@ -560,10 +560,10 @@ def main(argv):
     out = Path(argv[0]).resolve()
     rng = random.Random(7)
     days = trading_days(date.today() - timedelta(days=1 if date.today().weekday() < 5 else 0), 70)
-    quant(out / "quant", days, rng)
+    daytrader(out / "daytrader", days, rng)
     sentiment(out / "sentiment", days, rng)
     (out / "desk.json").write_text(json.dumps({
-        "bots": {"quant": {"data_dir": str(out / "quant")}, "sentiment": {"data_dir": str(out / "sentiment")}},
+        "bots": {"daytrader": {"data_dir": str(out / "daytrader")}, "sentiment": {"data_dir": str(out / "sentiment")}},
         "sections": {"journal": True, "memory": True, "version_content": True, "prices": True, "headlines": True,
                      "agent": True}}, indent=2))
     print(f"demo data in {out}; run: DESK_CONFIG={out / 'desk.json'} .venv/bin/python -m desk.app")

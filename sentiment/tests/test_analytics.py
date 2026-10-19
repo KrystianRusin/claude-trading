@@ -11,10 +11,10 @@ from broker import ET
 from logger import SUMMARY_FIELDS, TRADE_FIELDS, Book, read_trades_frame, trade_row
 
 DAYS = [date(2026, 10, d) for d in (5, 6, 7, 8, 9)]
-PAPER_TRADER_TRADE_FIELDS = ["date", "symbol", "side", "qty", "entry_time", "entry_price", "exit_time", "exit_price",
+DAYTRADER_TRADE_FIELDS = ["date", "symbol", "side", "qty", "entry_time", "entry_price", "exit_time", "exit_price",
                              "exit_reason", "pnl_usd", "pnl_r", "range_pct", "entry_minute_after_open",
                              "config_version", "strategy", "strategy_version"]
-PAPER_TRADER_SUMMARY_FIELDS = ["date", "trades", "wins", "losses", "gross_pnl", "equity_start", "equity_end",
+DAYTRADER_SUMMARY_FIELDS = ["date", "trades", "wins", "losses", "gross_pnl", "equity_start", "equity_end",
                                "halted", "notes"]
 
 
@@ -44,9 +44,9 @@ def summary(rets, start=100_000.0):
     return pd.DataFrame(rows)
 
 
-def test_files_start_with_the_paper_traders_columns():
-    assert TRADE_FIELDS[:16] == PAPER_TRADER_TRADE_FIELDS
-    assert SUMMARY_FIELDS[:9] == PAPER_TRADER_SUMMARY_FIELDS
+def test_files_start_with_the_day_traders_columns():
+    assert TRADE_FIELDS[:16] == DAYTRADER_TRADE_FIELDS
+    assert SUMMARY_FIELDS[:9] == DAYTRADER_SUMMARY_FIELDS
 
 
 def test_trade_row_r_multiple_and_times():
@@ -93,7 +93,7 @@ def test_summary_and_equity_stats():
     assert e["max_drawdown_usd"] == 200.0 and e["longest_losing_streak"] == 3 and e["total_return_pct"] == 10.0
 
 
-def test_report_sections_match_the_paper_trader(tmp_path):
+def test_report_sections_match_the_day_trader(tmp_path):
     closes = [({"symbol": "AAPL"}, DAYS[2], 104.0, "time"),
               ({"symbol": "NKE", "side": "short", "stop": 104.0, "score": -1, "conf": 0.75}, DAYS[2], 102.0, "sl"),
               ({"symbol": "TSLA", "score": 1, "conf": 0.8}, DAYS[3], 101.0, "flip"),

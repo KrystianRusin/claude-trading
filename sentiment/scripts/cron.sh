@@ -1,19 +1,20 @@
 #!/usr/bin/env bash
-# The cron schedule, in one place. setup.sh installs it once and deploy.sh reinstalls it after every
-# deploy, so schedule changes ship like code. Lines are tagged and replace only this repo's entries.
+# The sentiment bot's cron schedule, in one place. The repo's scripts/cron.sh installs it (from setup.sh and
+# after every deploy), so schedule changes ship like code. Lines are tagged and replace only this project's
+# entries.
 # Every job runs through scripts/job.sh, under the shared deploy lock, and is recorded in the runs table
 # of data/trader.db under its JOB_NAME.
 #
-#   scripts/cron.sh install    replace this repo's cron entries
+#   scripts/cron.sh install    replace this project's cron entries
 #   scripts/cron.sh print      show them
 set -euo pipefail
 cd "$(dirname "$0")/.."
 REPO="$PWD"
 PY="$REPO/.venv/bin/python"
 CRON_TAG="# sentiment-trader"
-PT_SECRETS="$HOME/.config/paper-trader/env"
-if [ -f "$PT_SECRETS" ] && grep -q '^export CLAUDE_CODE_OAUTH_TOKEN=.\+' "$PT_SECRETS"; then
-  SECRETS="$PT_SECRETS"
+DT_SECRETS="$HOME/.config/daytrader/env"  # the day trader's Claude token, shared when it has one
+if [ -f "$DT_SECRETS" ] && grep -q '^export CLAUDE_CODE_OAUTH_TOKEN=.\+' "$DT_SECRETS"; then
+  SECRETS="$DT_SECRETS"
 else
   SECRETS="$HOME/.config/sentiment-trader/env"
 fi
@@ -35,8 +36,7 @@ lines="*/30 7-20 * * 1-5 $(job news) $PY src/news.py fetch >> $LOG 2>&1 $CRON_TA
 15 19 * * 1-5 $(job universe) $PY src/universe.py build >> $LOG 2>&1 $CRON_TAG
 45 19 * * 1-5 . $SECRETS; $(job review) $PY src/review.py run >> $LOG 2>&1 $CRON_TAG
 50 2 * * * $(job purge) $PY src/db.py purge >> $LOG 2>&1 $CRON_TAG
-0 3 * * * $(job backup) $REPO/scripts/backup.sh >> $LOG 2>&1 $CRON_TAG
-*/5 * * * * $REPO/scripts/deploy.sh >> $REPO/data/logs/deploy.log 2>&1 $CRON_TAG"
+0 3 * * * $(job backup) $REPO/scripts/backup.sh >> $LOG 2>&1 $CRON_TAG"
 
 case "${1:-}" in
   print) echo "$lines" ;;

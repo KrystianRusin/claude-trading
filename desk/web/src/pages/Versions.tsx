@@ -8,7 +8,7 @@ import { DataTable, Loading, Segmented } from "../components/ui";
 import { BOT_COLOR, BOT_LABEL, num, pct, signClass, signedMoney, when } from "../format";
 import { useParam, useSetParams } from "../url";
 
-const BOTS = ["quant", "sentiment"] as const;
+const BOTS = ["daytrader", "sentiment"] as const;
 const KINDS = ["config", "strategy", "watchlist", "prompt", "memory"] as const;
 const KIND: Record<string, string> = { config: "Config", strategy: "Strategy", watchlist: "Watchlist", prompt: "Prompt", memory: "Memory" };
 const DEFAULT_KINDS = "config,strategy,watchlist,prompt";
@@ -77,7 +77,7 @@ function ChangeDetail({ bot, c, minTrades }: { bot: BotName; c: Change; minTrade
 }
 
 export default function Versions() {
-  const [bot] = useParam<BotName>("bot", "quant", BOTS);
+  const [bot] = useParam<BotName>("bot", "daytrader", BOTS);
   const [kindsParam, setKinds] = useParam<string>("kinds", DEFAULT_KINDS);
   const [changeParam] = useParam<string>("change", "");
   const set = useSetParams();
@@ -110,8 +110,8 @@ export default function Versions() {
           Every change is a marker on the return curve. Pick one to see the results before and after it.</p>
       </div>
       <div className="filters">
-        <Segmented label="Bot" value={bot} onChange={(b) => set({ bot: b === "quant" ? null : b, change: null, diff: null })}
-                   options={[{ value: "quant", label: "Quant" }, { value: "sentiment", label: "Sentiment" }]} />
+        <Segmented label="Bot" value={bot} onChange={(b) => set({ bot: b === "daytrader" ? null : b, change: null, diff: null })}
+                   options={[{ value: "daytrader", label: "Day trader" }, { value: "sentiment", label: "Sentiment" }]} />
         <div className="chips" role="group" aria-label="Kinds of change">
           {KINDS.map((k) => (
             <button key={k} className={kinds.includes(k) ? "on" : ""} aria-pressed={kinds.includes(k)} onClick={() => toggle(k)}>

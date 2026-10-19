@@ -1,12 +1,12 @@
-"""All-time statistics since the first trading day, in the same format as the paper-trader's lifetime.md.
+"""All-time statistics since the first trading day, in the same format as the day trader's lifetime.md.
 
     python src/lifetime.py [--book paper|dry_run|replay] [--no-baseline]
 
 Writes data/lifetime.md to read and data/lifetime.json for the daily review (inside the book's
-folder for dry-run and replay). After the paper-trader's sections it adds the sentiment-specific
+folder for dry-run and replay). After the day trader's sections it adds the sentiment-specific
 ones: by strategy, score, confidence and memory version; score calibration: for every score in every
 score file (traded or not), the stock's return from that day's open to the open `max_hold_days`
-trading days later; and the comparison with the paper-trader.
+trading days later; and the comparison with the day trader.
 """
 import argparse
 import csv
@@ -293,7 +293,7 @@ def build(book, horizon, log=None, outcomes=None, fetch=True):
         from compare import comparison
 
         versus = comparison(book, fetch=fetch)
-        versus = versus.replace("# Sentiment trader vs paper-trader", "## Versus the paper-trader", 1)
+        versus = versus.replace("# Sentiment trader vs day trader", "## Versus the day trader", 1)
         text = text.rstrip("\n") + "\n\n" + versus
     paths.lifetime_file(book).parent.mkdir(parents=True, exist_ok=True)
     paths.lifetime_file(book).write_text(text, encoding="utf-8")

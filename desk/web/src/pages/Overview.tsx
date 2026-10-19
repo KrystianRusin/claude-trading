@@ -69,7 +69,7 @@ function EquityChart({ books, benchmark }: { books: EquityBook[]; benchmark?: Be
       <TimeChart series={series} format={(v) => pct(v)} label="Return of each bot over time, in percent" />
       <div className="muted small">
         {range === "all" ? "Each point is a day's close, as a return on the starting equity."
-          : "Snapshots through the day: every minute for Quant, every 5 minutes for Sentiment."}
+          : "Snapshots through the day: every minute for Day trader, every 5 minutes for Sentiment."}
       </div>
     </div>
   );
@@ -85,8 +85,8 @@ function HotPanel({ sections }: { sections: string[] }) {
       <div className="muted small" style={{ marginBottom: 12 }}>The symbols each bot paid most attention to over its last 5 trading days.</div>
       <div className="grid two">
         <div>
-          <Bot bot="quant" />
-          <DataTable rows={h.quant} empty="No signals yet." columns={[
+          <Bot bot="daytrader" />
+          <DataTable rows={h.daytrader} empty="No signals yet." columns={[
             { key: "s", label: "Symbol", render: (r) => <><SymbolLink symbol={r.symbol} bold={false} />{r.new_on_watchlist && <span className="badge">new on watchlist</span>}</> },
             { key: "n", label: "Signals", num: true, render: (r) => r.signals },
             { key: "e", label: "Entered", num: true, render: (r) => r.entries },
@@ -106,13 +106,13 @@ function HotPanel({ sections }: { sections: string[] }) {
         )}
       </div>
       <div className="muted small" style={{ marginTop: 8 }}>
-        Quant: signals fired, entered or skipped. Sentiment: |score| × confidence summed over its daily scores, plus desk ideas.
+        Day trader: signals fired, entered or skipped. Sentiment: |score| × confidence summed over its daily scores, plus desk ideas.
       </div>
       {h.disagree && h.disagree.length > 0 && (
         <div style={{ marginTop: 16 }}>
           <h2>The bots disagree</h2>
           <ul style={{ margin: 0, paddingLeft: 18 }}>
-            {h.disagree.map((d) => <li key={d.symbol}><SymbolLink symbol={d.symbol} />: Quant went {d.quant}, Sentiment reads it {d.sentiment}.</li>)}
+            {h.disagree.map((d) => <li key={d.symbol}><SymbolLink symbol={d.symbol} />: Day trader went {d.daytrader}, Sentiment reads it {d.sentiment}.</li>)}
           </ul>
         </div>
       )}

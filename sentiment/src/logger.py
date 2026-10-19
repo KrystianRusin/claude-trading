@@ -16,7 +16,7 @@ import paths
 
 STRATEGY = "sentiment_swing"
 STRATEGY_VERSION = 1
-# The first 16 trade and 9 summary columns match the paper-trader's files, so both books read the same way.
+# The first 16 trade and 9 summary columns match the day trader's files, so both books read the same way.
 TRADE_FIELDS = ["date", "symbol", "side", "qty", "entry_time", "entry_price", "exit_time", "exit_price",
                 "exit_reason", "pnl_usd", "pnl_r", "range_pct", "entry_minute_after_open", "config_version",
                 "strategy", "strategy_version",

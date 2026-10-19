@@ -2,7 +2,7 @@
 
 Run `python src/broker.py` to check credentials, the account, the calendar and a sample of news.
 `python src/broker.py account-number --env <path>` prints the account number for the keys in another
-.env file (setup uses it to read the paper-trader's account without printing its keys).
+.env file (setup uses it to read the day trader's account without printing its keys).
 
 A backend fills one or both roles:
 - `MarketData`: calendar, daily bars, latest prices, assets and news (Alpaca today).
@@ -284,11 +284,11 @@ def to_et(ts):
 
 
 def check_separate_account(own, other):
-    """Refuse to trade when this account is the paper-trader's. `other` is "none" when there is none."""
+    """Refuse to trade when this account is the day trader's. `other` is "none" when there is none."""
     if not other:
-        raise SameAccountError("PAPER_TRADER_ACCOUNT is not set; run scripts/setup.sh")
+        raise SameAccountError("DAYTRADER_ACCOUNT is not set; run scripts/setup.sh")
     if other.strip().lower() != "none" and own.strip() == other.strip():
-        raise SameAccountError("these keys belong to the paper-trader's account; use a second paper account")
+        raise SameAccountError("these keys belong to the day trader's account; use a second paper account")
 
 
 def check_live(execution):
@@ -317,11 +317,12 @@ def _backend(registry, variable):
 
 def make_execution(verify_account=True):
     """The execution backend named by BROKER_BACKEND, after the live-account check and, unless
-    `verify_account` is false, the check that it is not the paper-trader's account."""
+    `verify_account` is false, the check that it is not the day trader's account."""
     load_dotenv(paths.ENV_FILE)
     execution = check_live(_backend(EXECUTION_BACKENDS, "BROKER_BACKEND")())
     if verify_account:
-        check_separate_account(execution.get_account().account_number, os.environ.get("PAPER_TRADER_ACCOUNT", ""))
+        other = os.environ.get("DAYTRADER_ACCOUNT") or os.environ.get("PAPER_TRADER_ACCOUNT", "")  # its old name
+        check_separate_account(execution.get_account().account_number, other)
     return execution
 
 

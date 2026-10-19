@@ -15,7 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULTS = ROOT / "defaults" / "desk.json"
 SETTINGS = ROOT / "data" / "desk.json"
-BOTS = ("quant", "sentiment")
+BOTS = ("daytrader", "sentiment")
 BOOKS = ("paper", "dry_run", "replay")
 
 # Every section the API can serve. A section that is off returns 404 and the UI hides it.
@@ -80,7 +80,11 @@ def load(path=None):
     raw = _read(DEFAULTS)
     path = Path(path or os.environ.get("DESK_CONFIG") or SETTINGS)
     if path.exists():
-        raw = _merge(raw, _read(path))
+        owner = _read(path)
+        bots = owner.get("bots")
+        if isinstance(bots, dict) and "quant" in bots and "daytrader" not in bots:
+            bots["daytrader"] = bots.pop("quant")  # the day trader was called quant before the monorepo
+        raw = _merge(raw, owner)
     unknown = set(raw["sections"]) - set(SECTIONS)
     if unknown:
         raise ConfigError(f"unknown sections {sorted(unknown)}; known: {sorted(SECTIONS)}")

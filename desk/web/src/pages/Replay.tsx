@@ -7,11 +7,11 @@ import { BOT_COLOR, money, num, pct, signClass, signedMoney } from "../format";
 import { SymbolLink } from "../sections";
 import { useParam, useSetParams } from "../url";
 
-const BOTS = ["quant", "sentiment"] as const;
+const BOTS = ["daytrader", "sentiment"] as const;
 const SPEEDS = ["1", "4", "16"] as const;
 
 export default function Replay() {
-  const [bot] = useParam<BotName>("bot", "quant", BOTS);
+  const [bot] = useParam<BotName>("bot", "daytrader", BOTS);
   const set = useSetParams();
   const days = useApi<{ days: string[] }>(`/api/replay/days${qs({ bot })}`);
   const [dayParam] = useParam<string>("day", "");
@@ -65,8 +65,8 @@ export default function Replay() {
           the bot held at each moment. Drag across the chart to move through the day.</p>
       </div>
       <div className="filters">
-        <Segmented label="Bot" value={bot} onChange={(b) => set({ bot: b === "quant" ? null : b, day: null, t: null })}
-                   options={[{ value: "quant", label: "Quant" }, { value: "sentiment", label: "Sentiment" }]} />
+        <Segmented label="Bot" value={bot} onChange={(b) => set({ bot: b === "daytrader" ? null : b, day: null, t: null })}
+                   options={[{ value: "daytrader", label: "Day trader" }, { value: "sentiment", label: "Sentiment" }]} />
         <select aria-label="Day" value={day} onChange={(e) => set({ day: e.target.value, t: null })}>
           {(days.data?.days ?? []).map((d) => <option key={d} value={d}>{d}</option>)}
         </select>

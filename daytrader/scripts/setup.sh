@@ -11,9 +11,10 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 REPO="$PWD"
-SECRETS_DIR="$HOME/.config/paper-trader"
+SECRETS_DIR="$HOME/.config/daytrader"
 SECRETS="$SECRETS_DIR/env"
-CRON_TAG="# paper-trader"
+OLD_SECRETS_DIR="$HOME/.config/paper-trader"  # its name before the monorepo
+CRON_TAG="# daytrader"
 
 step() { printf '\n==> %s\n' "$*"; }
 ask() { local reply; read -r -p "$1 [y/N] " reply; [[ "$reply" =~ ^[Yy]$ ]]; }
@@ -79,6 +80,11 @@ else
 fi
 
 step "Claude token for the nightly review"
+if [ -d "$OLD_SECRETS_DIR" ] && [ ! -L "$OLD_SECRETS_DIR" ] && [ ! -e "$SECRETS_DIR" ]; then
+  # Move it, and leave a link so anything still using the old path (an old checkout's cron) keeps working.
+  mv "$OLD_SECRETS_DIR" "$SECRETS_DIR" && ln -s daytrader "$OLD_SECRETS_DIR"
+  echo "Moved $OLD_SECRETS_DIR to $SECRETS_DIR (the old path links to it)"
+fi
 mkdir -p "$SECRETS_DIR"
 chmod 700 "$SECRETS_DIR"
 if [ -f "$SECRETS" ] && grep -q '^export CLAUDE_CODE_OAUTH_TOKEN=.\+' "$SECRETS"; then
@@ -114,11 +120,11 @@ step "Alpaca connection check"
 
 step "Cron jobs (trader 09:00, review 17:00 weekdays; deploy check every 5 minutes)"
 mkdir -p data
-scripts/cron.sh install
+../scripts/cron.sh install
 crontab -l | grep -F "$CRON_TAG"
 
 step "Done"
 echo "The trader runs weekdays at 09:00 and the review at 17:00 (local time)."
-echo "New commits on origin/main deploy themselves once CI passes (log: data/deploy.log)."
+echo "New commits on origin/main deploy themselves once CI passes (log: ../data/deploy.log)."
 echo "Logs: data/trader.log, data/cron.log, data/reports/review_<date>.log"
 echo "If the Windows scheduled tasks exist, delete them so only one machine trades."

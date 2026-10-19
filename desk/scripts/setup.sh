@@ -17,14 +17,7 @@ SERVICE="claude-desk"
 step() { printf '\n==> %s\n' "$*"; }
 ask() { local reply; read -r -p "$1 [y/N] " reply; [[ "$reply" =~ ^[Yy]$ ]]; }
 ask_path() { local reply; read -r -p "$1 [$2] " reply; echo "${reply:-$2}"; }
-# The data folder of the bot checked out in a folder of $HOME holding `marker`, else `fallback`.
-find_data() {
-  local marker="$1" fallback="$2" d
-  for d in "$HOME"/*/; do
-    [ -f "$d$marker" ] && { echo "${d%/}/data"; return; }
-  done
-  echo "$fallback"
-}
+ROOT="$(cd .. && pwd)"  # the monorepo; the bots are daytrader/ and sentiment/ next to this project
 
 step "Python virtual environment and packages"
 python3 -c 'import sys; sys.exit(sys.version_info < (3, 11))' || { echo "Python 3.11+ required"; exit 1; }
@@ -38,20 +31,20 @@ mkdir -p data
 if [ -f data/desk.json ]; then
   echo "OK: data/desk.json exists; edit it to change paths or what is public"
 else
-  quant=$(ask_path "claude-quant data folder" "$(find_data review/guard.py "$HOME/claude-quant/data")")
-  sentiment=$(ask_path "claude-sentiment-trading data folder" "$(find_data src/score.py "$HOME/claude-sentiment-trading/data")")
-  "$PY" - "$quant" "$sentiment" <<'EOF'
+  daytrader=$(ask_path "The day trader's data folder" "$ROOT/daytrader/data")
+  sentiment=$(ask_path "The sentiment bot's data folder" "$ROOT/sentiment/data")
+  "$PY" - "$daytrader" "$sentiment" <<'EOF'
 import json, sys
-json.dump({"bots": {"quant": {"data_dir": sys.argv[1]}, "sentiment": {"data_dir": sys.argv[2]}}},
+json.dump({"bots": {"daytrader": {"data_dir": sys.argv[1]}, "sentiment": {"data_dir": sys.argv[2]}}},
           open("data/desk.json", "w"), indent=2)
 EOF
   echo "OK: wrote data/desk.json. Which sections are public: .venv/bin/python -m desk.config"
 fi
 "$PY" -m desk.config
-read -r QUANT_DATA SENTIMENT_DATA PORT < <("$PY" -c '
+read -r DAYTRADER_DATA SENTIMENT_DATA PORT < <("$PY" -c '
 from desk import config
 s = config.load()
-print(s.bots["quant"]["data_dir"], s.bots["sentiment"]["data_dir"], s.port)')
+print(s.bots["daytrader"]["data_dir"], s.bots["sentiment"]["data_dir"], s.port)')
 
 step "Tests and data check"
 "$PY" -m pytest -q
@@ -61,7 +54,7 @@ step "Download files (rewritten nightly by cron)"
 "$PY" -m desk.export
 
 step "Web build for this commit"
-sha=$(git rev-parse --short=12 HEAD)
+sha=$(git rev-parse HEAD:desk | cut -c1-12)  # builds are named by the desk/ tree (see .github/workflows/ci.yml)
 if [ -f "data/web/$sha/index.html" ]; then
   echo "OK: already downloaded"
 else
@@ -103,8 +96,8 @@ PrivateUsers=yes
 PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=$QUANT_DATA $SENTIMENT_DATA
-InaccessiblePaths=-$(dirname "$QUANT_DATA")/.env -$(dirname "$SENTIMENT_DATA")/.env -$HOME/.config/paper-trader -$HOME/.config/sentiment-trader -$HOME/.ssh
+ReadWritePaths=$DAYTRADER_DATA $SENTIMENT_DATA
+InaccessiblePaths=-$(dirname "$DAYTRADER_DATA")/.env -$(dirname "$SENTIMENT_DATA")/.env -$HOME/.config/daytrader -$HOME/.config/paper-trader -$HOME/.config/sentiment-trader -$HOME/.ssh
 
 [Install]
 WantedBy=default.target
@@ -156,7 +149,7 @@ Before publishing, check what is public: .venv/bin/python -m desk.config
 EOF
 
 step "Cron jobs (deploys every 5 minutes, download files nightly)"
-scripts/cron.sh install
+../scripts/cron.sh install
 scripts/cron.sh print
 echo
 echo "Done."

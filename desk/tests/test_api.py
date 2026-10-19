@@ -23,13 +23,13 @@ def test_the_app_never_writes_the_databases(bots, client):
 
 
 def test_connections_are_read_only(bots):
-    with sources.connect(bots / "quant" / "trader.db") as conn:
+    with sources.connect(bots / "daytrader" / "trader.db") as conn:
         with pytest.raises(sqlite3.OperationalError):
             conn.execute("DELETE FROM trades")
 
 
 def test_a_live_bot_writing_while_the_api_reads(bots, settings):
-    writer = sqlite3.connect(bots / "quant" / "trader.db")
+    writer = sqlite3.connect(bots / "daytrader" / "trader.db")
     writer.execute("INSERT INTO trades (book, date, symbol, side, qty, entry_time, pnl_usd) "
                    "VALUES ('paper', '2026-10-16', 'IWM', 'long', 1, 'live', 5)")
     writer.commit()  # still open: the change sits in the WAL
@@ -41,14 +41,14 @@ def test_a_live_bot_writing_while_the_api_reads(bots, settings):
 def test_slow_queries_are_stopped(bots, monkeypatch):
     monkeypatch.setattr(sources, "QUERY_SECONDS", 0.05)
     with pytest.raises(sources.QueryTimeout):
-        with sources.connect(bots / "quant" / "trader.db") as conn:
+        with sources.connect(bots / "daytrader" / "trader.db") as conn:
             conn.execute("WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM n) SELECT MAX(x) FROM n").fetchall()
 
 
 def test_answers_are_cached(bots):
     client = TestClient(app_mod.create_app(write_settings(bots, cache_seconds=60)))
     first = client.get("/api/trades").json()["total"]
-    writer = sqlite3.connect(bots / "quant" / "trader.db")
+    writer = sqlite3.connect(bots / "daytrader" / "trader.db")
     writer.execute("DELETE FROM trades")
     writer.commit()
     writer.close()
@@ -116,13 +116,13 @@ def test_check_command(bots, monkeypatch, capsys):
     from desk import check
 
     settings = bots / "desk.json"
-    settings.write_text(json.dumps({"bots": {"quant": {"data_dir": str(bots / "quant")},
+    settings.write_text(json.dumps({"bots": {"daytrader": {"data_dir": str(bots / "daytrader")},
                                              "sentiment": {"data_dir": str(bots / "nowhere")}}}))
     monkeypatch.setenv("DESK_CONFIG", str(settings))
     assert check.main() == 0
     out = capsys.readouterr().out
-    assert "quant paper: OK" in out and "sentiment paper: no database yet" in out
-    conn = sqlite3.connect(bots / "quant" / "trader.db")
+    assert "daytrader paper: OK" in out and "sentiment paper: no database yet" in out
+    conn = sqlite3.connect(bots / "daytrader" / "trader.db")
     conn.execute("DROP TABLE bars")
     conn.commit()
     conn.close()
@@ -133,7 +133,7 @@ def test_every_query_the_ui_sends_is_answered(client):
     """The exact requests web/src makes, so a parameter type the API cannot parse shows up here."""
     for path in ("/api/symbols?days=7&min_trades=3", "/api/symbols?days=30&min_trades=1", "/api/symbols?days=0&min_trades=10",
                  "/api/compare?start=2026-09-01", "/api/compare",
-                 "/api/trades?bot=quant&symbol=SPY&strategy=opening_range_breakout&exit_reason=tp&side=long"
+                 "/api/trades?bot=daytrader&symbol=SPY&strategy=opening_range_breakout&exit_reason=tp&side=long"
                  "&start=2026-10-01&end=2026-10-16&limit=50&offset=0",
                  "/api/trades?limit=50&offset=50", "/api/trades/options", "/api/hot", "/api/equity", "/api/versions",
                  "/api/ops", "/api/meta"):

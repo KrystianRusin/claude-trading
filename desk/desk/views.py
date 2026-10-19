@@ -241,13 +241,13 @@ def _recent_dates(settings, bot, book, n):
     return [r["date"] for r in rows]
 
 
-def hot_quant(settings, today=None):
-    """Top symbols by signals fired (entries and skips) over the quant bot's last HOT_DAYS trading days."""
+def hot_daytrader(settings, today=None):
+    """Top symbols by signals fired (entries and skips) over the day trader's last HOT_DAYS trading days."""
     book = _paper_book(settings)
-    dates = _recent_dates(settings, "quant", book, HOT_DAYS)
+    dates = _recent_dates(settings, "daytrader", book, HOT_DAYS)
     if not dates:
         return []
-    rows = sources.query(settings, "quant", book,
+    rows = sources.query(settings, "daytrader", book,
                          "SELECT symbol, side, event, ts FROM order_events WHERE book = ? AND date >= ? AND symbol != '' "
                          "AND (event = 'skip' OR (event = 'submit' AND order_type = 'bracket')) ORDER BY ts",
                          (book, min(dates)))
@@ -264,9 +264,9 @@ def hot_quant(settings, today=None):
 
 
 def _new_on_watchlist(settings, today):
-    """Symbols the quant watchlist says were added in the last WATCHLIST_NEW_DAYS days. Reads the latest
+    """Symbols the day trader's watchlist says were added in the last WATCHLIST_NEW_DAYS days. Reads the latest
     watchlist version for the badge only; its content is not served."""
-    rows = sources.query_bot_db(settings, "quant", "SELECT content FROM versions WHERE kind = 'watchlist' "
+    rows = sources.query_bot_db(settings, "daytrader", "SELECT content FROM versions WHERE kind = 'watchlist' "
                                                    "ORDER BY id DESC LIMIT 1")
     if not rows or not rows[0]["content"]:
         return set()
@@ -308,8 +308,8 @@ def hot_sentiment(settings, today=None):
     return sorted((s for s in by.values() if s["heat"] > 0), key=lambda s: (-s["heat"], s["symbol"]))[:5]
 
 
-def disagreements(quant_hot, settings, today=None):
-    """Symbols where the quant bot's latest signal and the sentiment bot's lean point opposite ways."""
+def disagreements(daytrader_hot, settings, today=None):
+    """Symbols where the day trader's latest signal and the sentiment bot's lean point opposite ways."""
     today = today or current_day()
     records = sources.score_files(settings, today - timedelta(days=3 * HOT_DAYS))[-HOT_DAYS:]
     lean = {}
@@ -320,21 +320,21 @@ def disagreements(quant_hot, settings, today=None):
             except (KeyError, TypeError, ValueError):
                 continue
     out = []
-    for q in quant_hot:
+    for q in daytrader_hot:
         side, l = q["side"], lean.get(q["symbol"], 0.0)
         if (side == "long" and l < 0) or (side == "short" and l > 0):
-            out.append({"symbol": q["symbol"], "quant": side, "sentiment": "bearish" if l < 0 else "bullish"})
+            out.append({"symbol": q["symbol"], "daytrader": side, "sentiment": "bearish" if l < 0 else "bullish"})
     return out
 
 
 def hot(settings, today=None):
     """Hot right now for each bot whose section is public, and where they disagree."""
     out = {}
-    quant_hot = hot_quant(settings, today) if "quant" in settings.bots else []
-    out["quant"] = quant_hot
+    daytrader_hot = hot_daytrader(settings, today) if "daytrader" in settings.bots else []
+    out["daytrader"] = daytrader_hot
     if settings.public("scores") and "sentiment" in settings.bots:
         out["sentiment"] = hot_sentiment(settings, today)
-        out["disagree"] = disagreements(quant_hot, settings, today)
+        out["disagree"] = disagreements(daytrader_hot, settings, today)
     return out
 
 
@@ -375,7 +375,7 @@ def return_stats(returns):
 
 def compare(settings, start=None, end=None):
     """Both bots' paper books over the same date range, and the daily-return difference (sentiment minus
-    quant) on the days both traded, with its 95% range."""
+    day trader) on the days both traded, with its 95% range."""
     series = {bot: {d: r for d, r in daily_returns(settings, bot).items()
                     if (start is None or d >= start.isoformat()) and (end is None or d <= end.isoformat())}
               for bot in _bots(settings)}
@@ -389,7 +389,7 @@ def compare(settings, start=None, end=None):
             curve.append({"date": d, "return_pct": round((growth - 1) * 100, 4)})
         out["curves"][bot] = curve
     if len(series) == 2:
-        a, b = series.get("sentiment", {}), series.get("quant", {})
+        a, b = series.get("sentiment", {}), series.get("daytrader", {})
         both = sorted(set(a) & set(b))
         diff = [a[d] - b[d] for d in both]
         result = {"days": len(both), "first": both[0] if both else None, "last": both[-1] if both else None}
@@ -401,7 +401,7 @@ def compare(settings, start=None, end=None):
             low, high = mean - half, mean + half
             result |= {"mean_diff_pct": round(mean * 100, 4), "low_pct": round(low * 100, 4),
                        "high_pct": round(high * 100, 4), "correlation": round(corr, 4) if corr is not None else None,
-                       "verdict": "sentiment ahead" if low > 0 else "quant ahead" if high < 0 else "no clear winner yet"}
+                       "verdict": "sentiment ahead" if low > 0 else "day trader ahead" if high < 0 else "no clear winner yet"}
         else:
             result["verdict"] = "not enough overlapping days"
         out["difference"] = result
@@ -481,7 +481,7 @@ def _entry_times(settings, bot, book):
 
 
 def _every_5_minutes(points):
-    """The last point of each 5-minute slot: claude-quant snapshots every minute, which is more than a chart of
+    """The last point of each 5-minute slot: claude-daytrader snapshots every minute, which is more than a chart of
     several sessions needs."""
     slots = {}
     for p in points:
@@ -722,22 +722,22 @@ def version_diff(settings, bot, version_id):
 # ---- the bots disagree
 
 def disagreement_feed(settings, days=30, today=None):
-    """Each day and symbol where the quant bot's signal and that day's sentiment score point opposite ways,
+    """Each day and symbol where the day trader's signal and that day's sentiment score point opposite ways,
     with how each bot's trade on it turned out (if either traded it)."""
     today = today or current_day()
     start = today - timedelta(days=days)
     book = _paper_book(settings)
-    signals = sources.query(settings, "quant", book,
+    signals = sources.query(settings, "daytrader", book,
                             "SELECT date, symbol, side, event FROM order_events WHERE book = ? AND date >= ? AND symbol != '' "
                             "AND (event = 'skip' OR (event = 'submit' AND order_type = 'bracket')) ORDER BY ts",
                             (book, start.isoformat()))
-    quant = {}
+    daytrader = {}
     for s in signals:
-        q = quant.setdefault((s["date"], s["symbol"]), {"side": None, "entered": False})
+        q = daytrader.setdefault((s["date"], s["symbol"]), {"side": None, "entered": False})
         q["side"] = s["side"] or q["side"]
         q["entered"] |= s["event"] == "submit"
     qt, st = {}, {}
-    for t in all_trades(settings, bot="quant", start=start):
+    for t in all_trades(settings, bot="daytrader", start=start):
         if t["book"] == book and t["pnl_r"] is not None:
             qt.setdefault((t["entry_date"] or t["date"], t["symbol"]), []).append(t["pnl_r"])
     if "sentiment" in settings.bots:
@@ -748,16 +748,16 @@ def disagreement_feed(settings, days=30, today=None):
     for rec in sources.score_files(settings, start) if "sentiment" in settings.bots else []:
         d = rec.get("date")
         for sym, e in (rec.get("scores") or {}).items():
-            q = quant.get((d, sym))
+            q = daytrader.get((d, sym))
             try:
                 score, conf = float(e["score"]), float(e["confidence"])
             except (KeyError, TypeError, ValueError):
                 continue
             if not q or not score or (q["side"] == "long") == (score > 0) or q["side"] not in ("long", "short"):
                 continue
-            item = {"date": d, "symbol": sym, "quant": q["side"], "quant_entered": q["entered"],
+            item = {"date": d, "symbol": sym, "daytrader": q["side"], "daytrader_entered": q["entered"],
                     "sentiment": "bullish" if score > 0 else "bearish", "score": score, "confidence": conf,
-                    "quant_r": round(sum(qt[(d, sym)]), 4) if (d, sym) in qt else None,
+                    "daytrader_r": round(sum(qt[(d, sym)]), 4) if (d, sym) in qt else None,
                     "sentiment_r": round(sum(st[(d, sym)]), 4) if (d, sym) in st else None}
             items.append(item)
     items.sort(key=lambda i: (i["date"], i["symbol"]), reverse=True)
@@ -766,7 +766,7 @@ def disagreement_feed(settings, days=30, today=None):
         rs = [i[key] for i in items if i[key] is not None]
         return {"traded": len(rs), "won": sum(r > 0 for r in rs), "avg_r": round(statistics.fmean(rs), 4) if rs else None}
 
-    return {"days": days, "items": items, "quant": tally("quant_r"), "sentiment": tally("sentiment_r")}
+    return {"days": days, "items": items, "daytrader": tally("daytrader_r"), "sentiment": tally("sentiment_r")}
 
 
 # ---- ops

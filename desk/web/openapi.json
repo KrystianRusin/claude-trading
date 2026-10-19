@@ -5,7 +5,7 @@
     "properties": {
      "bot": {
       "enum": [
-       "quant",
+       "daytrader",
        "sentiment"
       ],
       "title": "Bot",
@@ -922,8 +922,8 @@
    },
    "Disagree": {
     "properties": {
-     "quant": {
-      "title": "Quant",
+     "daytrader": {
+      "title": "Daytrader",
       "type": "string"
      },
      "sentiment": {
@@ -937,7 +937,7 @@
     },
     "required": [
      "symbol",
-     "quant",
+     "daytrader",
      "sentiment"
     ],
     "title": "Disagree",
@@ -960,15 +960,15 @@
       ],
       "title": "Date"
      },
-     "quant": {
-      "title": "Quant",
+     "daytrader": {
+      "title": "Daytrader",
       "type": "string"
      },
-     "quant_entered": {
-      "title": "Quant Entered",
+     "daytrader_entered": {
+      "title": "Daytrader Entered",
       "type": "boolean"
      },
-     "quant_r": {
+     "daytrader_r": {
       "anyOf": [
        {
         "type": "number"
@@ -977,7 +977,7 @@
         "type": "null"
        }
       ],
-      "title": "Quant R"
+      "title": "Daytrader R"
      },
      "score": {
       "title": "Score",
@@ -1006,12 +1006,12 @@
     "required": [
      "date",
      "symbol",
-     "quant",
-     "quant_entered",
+     "daytrader",
+     "daytrader_entered",
      "sentiment",
      "score",
      "confidence",
-     "quant_r",
+     "daytrader_r",
      "sentiment_r"
     ],
     "title": "DisagreementItem",
@@ -1023,15 +1023,15 @@
       "title": "Days",
       "type": "integer"
      },
+     "daytrader": {
+      "$ref": "#/components/schemas/Tally"
+     },
      "items": {
       "items": {
        "$ref": "#/components/schemas/DisagreementItem"
       },
       "title": "Items",
       "type": "array"
-     },
-     "quant": {
-      "$ref": "#/components/schemas/Tally"
      },
      "sentiment": {
       "$ref": "#/components/schemas/Tally"
@@ -1040,7 +1040,7 @@
     "required": [
      "days",
      "items",
-     "quant",
+     "daytrader",
      "sentiment"
     ],
     "title": "Disagreements",
@@ -1260,7 +1260,7 @@
      },
      "bot": {
       "enum": [
-       "quant",
+       "daytrader",
        "sentiment"
       ],
       "title": "Bot",
@@ -2020,7 +2020,7 @@
      },
      "bot": {
       "enum": [
-       "quant",
+       "daytrader",
        "sentiment"
       ],
       "title": "Bot",
@@ -2087,6 +2087,13 @@
    },
    "Hot": {
     "properties": {
+     "daytrader": {
+      "items": {
+       "$ref": "#/components/schemas/HotDaytrader"
+      },
+      "title": "Daytrader",
+      "type": "array"
+     },
      "disagree": {
       "anyOf": [
        {
@@ -2100,13 +2107,6 @@
        }
       ],
       "title": "Disagree"
-     },
-     "quant": {
-      "items": {
-       "$ref": "#/components/schemas/HotQuant"
-      },
-      "title": "Quant",
-      "type": "array"
      },
      "sentiment": {
       "anyOf": [
@@ -2124,12 +2124,12 @@
      }
     },
     "required": [
-     "quant"
+     "daytrader"
     ],
     "title": "Hot",
     "type": "object"
    },
-   "HotQuant": {
+   "HotDaytrader": {
     "properties": {
      "entries": {
       "title": "Entries",
@@ -2166,7 +2166,7 @@
      "side",
      "new_on_watchlist"
     ],
-    "title": "HotQuant",
+    "title": "HotDaytrader",
     "type": "object"
    },
    "HotSentiment": {
@@ -2318,7 +2318,7 @@
     "properties": {
      "bot": {
       "enum": [
-       "quant",
+       "daytrader",
        "sentiment"
       ],
       "title": "Bot",
@@ -2439,7 +2439,7 @@
     "properties": {
      "bot": {
       "enum": [
-       "quant",
+       "daytrader",
        "sentiment"
       ],
       "title": "Bot",
@@ -2573,7 +2573,7 @@
      },
      "bot": {
       "enum": [
-       "quant",
+       "daytrader",
        "sentiment"
       ],
       "title": "Bot",
@@ -2870,7 +2870,7 @@
      },
      "name": {
       "enum": [
-       "quant",
+       "daytrader",
        "sentiment"
       ],
       "title": "Name",
@@ -2907,7 +2907,7 @@
     "properties": {
      "bot": {
       "enum": [
-       "quant",
+       "daytrader",
        "sentiment"
       ],
       "title": "Bot",
@@ -2995,7 +2995,7 @@
     "properties": {
      "bot": {
       "enum": [
-       "quant",
+       "daytrader",
        "sentiment"
       ],
       "title": "Bot",
@@ -3657,7 +3657,7 @@
      },
      "bot": {
       "enum": [
-       "quant",
+       "daytrader",
        "sentiment"
       ],
       "title": "Bot",
@@ -3831,7 +3831,7 @@
      },
      "bot": {
       "enum": [
-       "quant",
+       "daytrader",
        "sentiment"
       ],
       "title": "Bot",
@@ -4581,7 +4581,7 @@
       "required": true,
       "schema": {
        "enum": [
-        "quant",
+        "daytrader",
         "sentiment"
        ],
        "title": "Bot",
@@ -4994,7 +4994,7 @@
       "required": true,
       "schema": {
        "enum": [
-        "quant",
+        "daytrader",
         "sentiment"
        ],
        "title": "Bot",
@@ -5054,7 +5054,7 @@
       "required": true,
       "schema": {
        "enum": [
-        "quant",
+        "daytrader",
         "sentiment"
        ],
        "title": "Bot",
@@ -5155,7 +5155,7 @@
       "required": true,
       "schema": {
        "enum": [
-        "quant",
+        "daytrader",
         "sentiment"
        ],
        "title": "Bot",
@@ -5208,7 +5208,7 @@
       "required": true,
       "schema": {
        "enum": [
-        "quant",
+        "daytrader",
         "sentiment"
        ],
        "title": "Bot",
@@ -5381,7 +5381,7 @@
       "required": true,
       "schema": {
        "enum": [
-        "quant",
+        "daytrader",
         "sentiment"
        ],
        "title": "Bot",
@@ -5436,7 +5436,7 @@
        "anyOf": [
         {
          "enum": [
-          "quant",
+          "daytrader",
           "sentiment"
          ],
          "type": "string"
@@ -5670,7 +5670,7 @@
       "required": true,
       "schema": {
        "enum": [
-        "quant",
+        "daytrader",
         "sentiment"
        ],
        "title": "Bot",
@@ -5723,7 +5723,7 @@
       "required": true,
       "schema": {
        "enum": [
-        "quant",
+        "daytrader",
         "sentiment"
        ],
        "title": "Bot",

@@ -41,7 +41,7 @@ export default function Trades() {
     </select>
   );
   const s = res.data?.stats;
-  const picked = (params.get("trade") ?? "").match(/^(quant|sentiment)-(\d+)$/);
+  const picked = (params.get("trade") ?? "").match(/^(daytrader|sentiment)-(\d+)$/);
   return (
     <div className="stack">
       <div>
@@ -51,7 +51,7 @@ export default function Trades() {
       </div>
       <div className="filters">
         <select aria-label="Bot" value={filters.bot} onChange={(e) => set("bot", e.target.value)}>
-          <option value="">Both bots</option><option value="quant">Quant</option><option value="sentiment">Sentiment</option>
+          <option value="">Both bots</option><option value="daytrader">Day trader</option><option value="sentiment">Sentiment</option>
         </select>
         {select("symbol", "Symbol")}
         {select("strategy", "Strategy")}

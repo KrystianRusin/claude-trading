@@ -37,7 +37,7 @@ def known_symbols(settings, today=None):
 
 
 def symbol(settings, sym, today=None):
-    """One symbol across both bots: results per bot, its trades, the quant bot's signals and (with scores) the
+    """One symbol across both bots: results per bot, its trades, the day trader's signals and (with scores) the
     sentiment bot's daily scores and desk ideas."""
     today = today or views.current_day()
     since = today - timedelta(days=SYMBOL_DAYS)
@@ -50,9 +50,9 @@ def symbol(settings, sym, today=None):
             stats[bot] = {k: s[k] for k in ("trades", "wins", "losses", "win_rate", "total_pnl", "avg_r")} | {
                 "first": min(t["date"] for t in mine), "last": max(t["date"] for t in mine)}
     signals = []
-    if "quant" in settings.bots:
+    if "daytrader" in settings.bots:
         book = views._paper_book(settings)
-        rows = sources.query(settings, "quant", book,
+        rows = sources.query(settings, "daytrader", book,
                              "SELECT date, side, event FROM order_events WHERE book = ? AND symbol = ? AND date >= ? "
                              "AND (event = 'skip' OR (event = 'submit' AND order_type = 'bracket')) ORDER BY ts",
                              (book, sym, since.isoformat()))
@@ -81,7 +81,7 @@ def symbol(settings, sym, today=None):
 
 
 def bars(settings, sym, timeframe, start, end):
-    """Saved price bars of `sym` from both bots' bars tables (the sentiment bot saves daily bars, the quant bot
+    """Saved price bars of `sym` from both bots' bars tables (the sentiment bot saves daily bars, the day trader
     minute bars of the sessions it traded), oldest first."""
     rows = {}
     for bot in settings.bots:
@@ -245,7 +245,7 @@ CHANGELOG_DAY = re.compile(r"^## (\d{4}-\d{2}-\d{2})[^\n]*$", re.MULTILINE)
 
 
 def changelog_entries(text):
-    """{date: text} of claude-quant's changelog, one entry per '## <date>' heading (several are joined)."""
+    """{date: text} of claude-daytrader's changelog, one entry per '## <date>' heading (several are joined)."""
     out = {}
     parts = CHANGELOG_DAY.split(text or "")
     for day, body in zip(parts[1::2], parts[2::2]):
@@ -254,8 +254,8 @@ def changelog_entries(text):
 
 
 def agent_activity(settings, bot, today=None):
-    """Per day, newest first: the review run, the guard result (claude-quant), what the review changed, memory
-    entries added or moved, whether a journal entry was written, and the changelog entry (claude-quant)."""
+    """Per day, newest first: the review run, the guard result (claude-daytrader), what the review changed, memory
+    entries added or moved, whether a journal entry was written, and the changelog entry (claude-daytrader)."""
     today = today or views.current_day()
     since = (today - timedelta(days=AGENT_DAYS)).isoformat()
     days = {}
@@ -282,12 +282,12 @@ def agent_activity(settings, bot, today=None):
     for d in sources.journal_dates(settings, bot):
         if d >= since:
             day(d)["journal"] = True
-    if bot == "quant":
-        for d, text in changelog_entries(sources.quant_changelog(settings)).items():
+    if bot == "daytrader":
+        for d, text in changelog_entries(sources.daytrader_changelog(settings)).items():
             if d >= since:
                 day(d)["changelog"] = text
         for d, entry in days.items():
-            log = sources.quant_review_log(settings, d)
+            log = sources.daytrader_review_log(settings, d)
             if log:
                 result = GUARD.findall(log)
                 problems = GUARD_PROBLEMS.findall(log)

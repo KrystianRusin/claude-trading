@@ -1,4 +1,6 @@
-# claude-quant
+# claude-daytrader
+
+Part of [claude-trading](../README.md). Called claude-quant before the repos merged.
 
 An automated day trader that runs on an Alpaca paper account, plus a nightly loop in which Claude
 reviews the results and tunes the strategy. I built it to see how well Claude can develop and run
@@ -82,22 +84,19 @@ trades.
 
 Trades, orders and daily summaries are written as CSV and mirrored into SQLite (`data/trader.db`).
 The database also holds equity snapshots, order states, job runs, every version of the config,
-strategies and memory, and saved price bars. It feeds
-[claude-desk](https://github.com/KrystianRusin/claude-desk), the dashboard. Migrations are numbered
-SQL files in `migrations/`. The first three are shared with claude-sentiment-trading and pinned by
-hash in both repos. A nightly job backs the database up and purges old bars and snapshots.
+strategies and memory, and saved price bars. It feeds the dashboard in [`desk/`](../desk). Migrations are numbered SQL files in `migrations/`. The
+first three are shared with the sentiment bot and pinned by hash in both projects. A nightly job backs the database up and purges old bars and snapshots.
 
 ## Deployment
 
-The bot runs on a Raspberry Pi under cron. Every push runs the tests on GitHub Actions, and the Pi
-pulls new commits itself; nothing pushes to it.
+The bot runs on a Raspberry Pi under cron. The Pi pulls new commits itself; nothing pushes to it. The deploy, CI and the cron installer are shared
+by the whole repo; see the [top-level README](../README.md#deployment).
 
-- `scripts/deploy.sh` runs every 5 minutes. When `origin/main` has a new commit that passed CI, it
-  fast-forwards, migrates the database, runs the checks and reinstalls cron. If a check fails it
-  rolls back and skips that commit.
-- Jobs and deploys share a lock (`scripts/job.sh`), so code never changes under a running session
-  or review.
-- `scripts/cron.sh` holds the schedule and is reinstalled on every deploy.
+- A commit that changes `daytrader/` is deployed once CI passes: the database is migrated, the checks
+  run, and if one fails the whole checkout rolls back and skips that commit.
+- Jobs and deploys share this project's lock (`scripts/job.sh`), so code never changes under a running
+  session or review.
+- `scripts/cron.sh` holds this bot's schedule and is reinstalled on every deploy.
 
 ## Setup
 

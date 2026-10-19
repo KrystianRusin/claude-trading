@@ -4,14 +4,14 @@ Every database is opened with mode=ro and query_only, one connection per request
 stopped after QUERY_SECONDS. Nothing here can write: the bots own their data.
 
 Where each bot keeps a book's database, relative to its data directory:
-- claude-quant: data/trader.db is the paper book, data/shadow/trader.db the shadow dry run
+- claude-daytrader: data/trader.db is the paper book, data/shadow/trader.db the shadow dry run
 - claude-sentiment-trading: data/trader.db holds every book, told apart by the book column
 
 Files read beside the databases:
 - the sentiment bot's score files (data/scores/<date>.json), open positions (data/books/<book>/positions.csv),
   news (data/news/<date>.jsonl) and lifetime statistics (data/lifetime.json)
 - both bots' journals (data/journal/<date>.md)
-- claude-quant's changelog (data/changelog.md) and review logs (data/reports/review_<date>.log)
+- claude-daytrader's changelog (data/changelog.md) and review logs (data/reports/review_<date>.log)
 """
 import csv
 import json
@@ -23,7 +23,7 @@ from pathlib import Path
 
 DB_NAME = "trader.db"
 LAYOUT = {
-    "quant": {"paper": DB_NAME, "dry_run": f"shadow/{DB_NAME}", "replay": f"replay/{DB_NAME}"},
+    "daytrader": {"paper": DB_NAME, "dry_run": f"shadow/{DB_NAME}", "replay": f"replay/{DB_NAME}"},
     "sentiment": {"paper": DB_NAME, "dry_run": DB_NAME, "replay": DB_NAME},
 }
 QUERY_SECONDS = 2.0
@@ -225,15 +225,15 @@ def attention_rows(settings, symbol, limit=60):
     return rows[::-1]
 
 
-def quant_changelog(settings):
-    return _read_capped(settings.bots["quant"]["data_dir"] / "changelog.md", 2_000_000)
+def daytrader_changelog(settings):
+    return _read_capped(settings.bots["daytrader"]["data_dir"] / "changelog.md", 2_000_000)
 
 
-def quant_review_log(settings, day):
-    """The tail of claude-quant's review log for `day` (a date string), or None."""
+def daytrader_review_log(settings, day):
+    """The tail of claude-daytrader's review log for `day` (a date string), or None."""
     if not DATE_FILE.match(day):
         return None
-    f = settings.bots["quant"]["data_dir"] / "reports" / f"review_{day}.log"
+    f = settings.bots["daytrader"]["data_dir"] / "reports" / f"review_{day}.log"
     try:
         size = f.stat().st_size
         with open(f, "rb") as fh:

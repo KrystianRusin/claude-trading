@@ -10,7 +10,7 @@ from desk import research
 
 def test_symbol_page(settings):
     s = research.symbol(settings, "NKE")
-    assert s["bots"]["sentiment"]["trades"] == 3 and s["bots"]["sentiment"]["total_pnl"] == 300 and "quant" not in s["bots"]
+    assert s["bots"]["sentiment"]["trades"] == 3 and s["bots"]["sentiment"]["total_pnl"] == 300 and "daytrader" not in s["bots"]
     assert [x["date"] for x in s["scores"]] == [DAYS[-2].isoformat(), TODAY.isoformat()] and s["scores"][0]["articles"] == 3
     spy = research.symbol(settings, "SPY")
     assert len(spy["signals"]) == 5 and all(x["entered"] for x in spy["signals"])
@@ -32,13 +32,13 @@ def test_symbols_are_validated(client):
 
 def test_trade_detail_has_stop_target_and_its_window(settings):
     first = next(t for t in research.symbol(settings, "SPY")["trades"] if t["date"] == DAYS[0].isoformat())
-    d = research.trade_detail(settings, "quant", first["id"])
+    d = research.trade_detail(settings, "daytrader", first["id"])
     assert d["target_price"] == 101.5 and d["window"] == {"timeframe": "1Min", "start": DAYS[0].isoformat(),
                                                           "end": DAYS[0].isoformat()}
     nke = next(t for t in research.symbol(settings, "NKE")["trades"])
     w = research.trade_detail(settings, "sentiment", nke["id"])["window"]
     assert w["timeframe"] == "1Day" and w["start"] < nke["entry_date"] and w["end"] > nke["date"]
-    assert research.trade_detail(settings, "quant", 9999) is None
+    assert research.trade_detail(settings, "daytrader", 9999) is None
 
 
 def test_trade_detail_of_a_hidden_book_is_not_found(settings):
@@ -85,7 +85,7 @@ def test_changelog_entries():
 
 
 def test_agent_activity(settings):
-    q = {d["date"]: d for d in research.agent_activity(settings, "quant")["days"]}
+    q = {d["date"]: d for d in research.agent_activity(settings, "daytrader")["days"]}
     today = q[TODAY.isoformat()]
     assert today["guard"] == {"passed": False, "problems": 2} and today["reviews"][0]["status"] == "failed"
     assert today["changelog"] == "Raised the range filter." and today["journal"]

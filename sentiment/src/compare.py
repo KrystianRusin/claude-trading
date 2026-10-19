@@ -1,10 +1,11 @@
-"""Side-by-side comparison of this book and the paper-trader's over their overlapping days.
+"""Side-by-side comparison of this book and the day trader's over their overlapping days.
 
     python src/compare.py [--book paper|dry_run]
 
 Printed here, and included as a section of the lifetime file.
 
-Reads the paper-trader's state folder (PAPER_TRADER_STATE in .env) read-only. Both books keep a
+Reads the day trader's data folder read-only: DAYTRADER_STATE in .env (PAPER_TRADER_STATE before the
+monorepo), else daytrader/data next to this project. Both books keep a
 daily_summary.csv with date, equity_start and equity_end; daily returns come from those.
 """
 import argparse
@@ -49,6 +50,18 @@ def _trades_in(trades, col, dates):
     return int(days.isin(set(dates)).sum())
 
 
+TITLE = "Sentiment trader vs day trader"
+
+
+def day_trader_state():
+    """The day trader's data folder, or None."""
+    other = os.environ.get("DAYTRADER_STATE") or os.environ.get("PAPER_TRADER_STATE")
+    if other:
+        return other
+    sibling = paths.ROOT.parent / "daytrader" / "data"
+    return str(sibling) if sibling.is_dir() else None
+
+
 def _fmt(v, pct=True):
     if v is None or (isinstance(v, float) and math.isnan(v)):
         return "n/a"
@@ -56,10 +69,10 @@ def _fmt(v, pct=True):
 
 
 def build_comparison(ours, theirs, our_trades=None, their_trades=None, spy=None,
-                     names=("sentiment-trader", "paper-trader")):
+                     names=("sentiment-trader", "day trader")):
     ra, rb = daily_returns(ours), daily_returns(theirs)
     overlap = sorted(set(ra.index) & set(rb.index))
-    lines = ["# Sentiment trader vs paper-trader", ""]
+    lines = [f"# {TITLE}", ""]
     if not overlap:
         return "\n".join(lines + ["No overlapping days yet."]) + "\n"
     ra, rb = ra.loc[overlap], rb.loc[overlap]
@@ -99,23 +112,23 @@ def comparison(book, fetch=True):
 
     ours_dir = paths.book_dir(book)
     ours = read_summary(ours_dir / "daily_summary.csv")
-    other = os.environ.get("PAPER_TRADER_STATE")
+    other = day_trader_state()
     if not other or not (Path(other) / "daily_summary.csv").exists():
-        text = "# Sentiment trader vs paper-trader\n\nPAPER_TRADER_STATE is not set or has no daily_summary.csv.\n"
+        text = f"# {TITLE}\n\nNo daily_summary.csv from the day trader (set DAYTRADER_STATE in .env).\n"
     else:
         theirs = read_summary(Path(other) / "daily_summary.csv")
         their_trades = pd.read_csv(Path(other) / "trades.csv") if (Path(other) / "trades.csv").exists() else None
         overlap = sorted(set(ours["date"]) & set(theirs["date"]))
         spy = spy_baseline(overlap[0], overlap[-1]) if overlap and fetch else None
         text = build_comparison(ours, theirs, read_trades_frame(ours_dir / "trades.csv"), their_trades, spy,
-                                names=(f"sentiment-trader ({book})", "paper-trader"))
+                                names=(f"sentiment-trader ({book})", "day trader"))
     return text
 
 
 def main(argv=None):
     from logger import setup_logging
 
-    ap = argparse.ArgumentParser(description="compare with the paper-trader")
+    ap = argparse.ArgumentParser(description="compare with the day trader")
     ap.add_argument("--book", choices=["paper", "dry_run"], default="paper")
     args = ap.parse_args(argv)
     setup_logging("compare")
