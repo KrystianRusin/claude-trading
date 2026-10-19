@@ -4,8 +4,7 @@ A paper swing trader driven by news. Each morning Claude scores the news on the 
 stocks and proposes a few trade ideas. Fixed rules size, stop and exit every trade, and positions
 are held for days. It runs on a Raspberry Pi next to
 [claude-quant](https://github.com/KrystianRusin/claude-quant), on its own Alpaca paper account, so
-the two approaches can be compared over the same period. The design is in
-[docs/SPEC.md](docs/SPEC.md).
+the two approaches can be compared over the same period.
 
 Paper fills are optimistic, paper shorts have no borrow costs, and short-run results say little
 about skill. This is not financial advice.
