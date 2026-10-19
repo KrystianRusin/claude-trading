@@ -25,7 +25,7 @@ The owner chooses which parts are public.
 | Symbols | One symbol across both bots: trades, news scores, signals, price chart and headlines |
 | Replay | One session played back minute by minute: equity, fills and positions |
 | What changed | Every config, strategy, prompt and memory change marked on the return curve, with results before and after and the diff |
-| Research | Sentiment score calibration, news volume and how the desk's ideas turned out |
+| Research | Sentiment score calibration, news volume, how the desk's ideas turned out, and attention: the daily discovery list and returns by how many attention sources were elevated |
 | Notebook | The bots' journals and how each memory entry moved from hypothesis to confirmed or retired |
 | Agent activity | Each night's review: what changed and whether the guard accepted it |
 | Operations | Job runs and deploys |

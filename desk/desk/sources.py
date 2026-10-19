@@ -202,6 +202,29 @@ def sentiment_lifetime(settings):
         return None, None
 
 
+def sentiment_discovery(settings):
+    """The sentiment bot's newest discovery list (data/discovery/<date>.json), or None."""
+    folder = settings.bots["sentiment"]["data_dir"] / "discovery"
+    files = sorted(f for f in folder.glob("*.json") if DATE_FILE.match(f.stem)) if folder.is_dir() else []
+    for f in reversed(files):
+        try:
+            return json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+    return None
+
+
+def attention_rows(settings, symbol, limit=60):
+    """The sentiment bot's attention rows for a symbol, oldest first; [] before its attention table exists."""
+    try:
+        rows = query_bot_db(settings, "sentiment", "SELECT date, volume_z, news_z, wiki_z, reddit_z, mentions, breadth "
+                                                   "FROM attention WHERE symbol = ? ORDER BY date DESC LIMIT ?",
+                            (symbol, limit))
+    except sqlite3.OperationalError:  # an older database without the attention table
+        return []
+    return rows[::-1]
+
+
 def quant_changelog(settings):
     return _read_capped(settings.bots["quant"]["data_dir"] / "changelog.md", 2_000_000)
 

@@ -1,4 +1,6 @@
 """The symbol page, trade detail and bars, headlines, sentiment research and agent activity (ticket 007)."""
+import json
+
 from fastapi.testclient import TestClient
 
 from conftest import DAYS, TODAY, write_settings
@@ -93,3 +95,44 @@ def test_agent_activity(settings):
                                                                           ("M-2", "retired", None)}
     s = research.agent_activity(settings, "sentiment")
     assert all(d["guard"] is None and d["changelog"] is None for d in s["days"])
+
+
+def test_attention_is_empty_before_the_bot_collects_it(settings):
+    assert research.symbol(settings, "NKE")["attention"] == []  # no attention table in this database yet
+    a = research.research(settings)["attention"]
+    assert a == {"breadth": [], "discovery_date": None, "discovery": [], "collect_only": True, "discovery_history": []}
+
+
+def test_attention_and_discovery(bots, settings):
+    import sqlite3
+
+    sentiment = bots / "sentiment"
+    conn = sqlite3.connect(sentiment / "trader.db")
+    conn.executescript("CREATE TABLE attention (date TEXT, symbol TEXT, in_universe INTEGER, volume_z REAL, rvol REAL, "
+                       "news_z REAL, articles INTEGER, wiki_z REAL, page_views INTEGER, reddit_z REAL, mentions INTEGER, "
+                       "breadth INTEGER, acceleration REAL, close REAL, ret_1d REAL, PRIMARY KEY (date, symbol))")
+    conn.execute("INSERT INTO attention (date, symbol, in_universe, volume_z, news_z, reddit_z, mentions, breadth, close) "
+                 "VALUES ('2026-10-13', 'NKE', 1, 2.5, 3.1, NULL, 40, 2, 104)")
+    conn.commit()
+    conn.close()
+    (sentiment / "discovery").mkdir()
+    (sentiment / "discovery" / "2026-10-14.json").write_text(json.dumps({
+        "date": "2026-10-14", "session": "2026-10-13", "collect_only": True,
+        "names": [{"symbol": "IRON", "reasons": ["volume +4.8σ", "news +2.1σ"], "close": 77.9, "ret_1d": 37.1, "rvol": 10.7,
+                   "breadth": 2, "dollar_volume": 64e6}, {"symbol": "../bad"}]}))
+    life = json.loads((sentiment / "lifetime.json").read_text())
+    life["attention"] = {"by": {"breadth": {"0": {"all": {"1d": {"n": 300, "mean_pct": 0.01, "up_rate": 0.5}},
+                                                  "after an up day": {}},
+                                            "2": {"all": {"1d": {"n": 12, "mean_pct": 0.8, "up_rate": 0.66},
+                                                          "5d": {"n": 10, "mean_pct": 1.9}}}}},
+                         "discovery": [{"date": "2026-10-14", "names": 1, "1d": {"n": 1, "mean_pct": 2.0}}]}
+    (sentiment / "lifetime.json").write_text(json.dumps(life))
+    s = research.symbol(settings, "NKE")["attention"]
+    assert s == [{"date": "2026-10-13", "volume_z": 2.5, "news_z": 3.1, "wiki_z": None, "reddit_z": None, "mentions": 40,
+                  "breadth": 2}]
+    a = research.research(settings)["attention"]
+    assert [b["breadth"] for b in a["breadth"]] == ["0", "2"] and a["breadth"][1]["d5"] == 1.9
+    assert [n["symbol"] for n in a["discovery"]] == ["IRON"] and a["discovery_date"] == "2026-10-14"
+    assert "dollar_volume" not in a["discovery"][0] and a["discovery_history"][0]["d1"] == 2.0
+    client = TestClient(app_mod.create_app(settings))
+    assert client.get("/api/research").json()["attention"]["discovery"][0]["reasons"] == ["volume +4.8σ", "news +2.1σ"]

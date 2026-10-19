@@ -138,6 +138,133 @@
     "title": "AgentDay",
     "type": "object"
    },
+   "Attention": {
+    "properties": {
+     "breadth": {
+      "items": {
+       "$ref": "#/components/schemas/BreadthReturns"
+      },
+      "title": "Breadth",
+      "type": "array"
+     },
+     "collect_only": {
+      "title": "Collect Only",
+      "type": "boolean"
+     },
+     "discovery": {
+      "items": {
+       "$ref": "#/components/schemas/DiscoveredName"
+      },
+      "title": "Discovery",
+      "type": "array"
+     },
+     "discovery_date": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Discovery Date"
+     },
+     "discovery_history": {
+      "items": {
+       "$ref": "#/components/schemas/DiscoveryOutcome"
+      },
+      "title": "Discovery History",
+      "type": "array"
+     }
+    },
+    "required": [
+     "breadth",
+     "discovery_date",
+     "discovery",
+     "collect_only",
+     "discovery_history"
+    ],
+    "title": "Attention",
+    "type": "object"
+   },
+   "AttentionPoint": {
+    "properties": {
+     "breadth": {
+      "title": "Breadth",
+      "type": "integer"
+     },
+     "date": {
+      "title": "Date",
+      "type": "string"
+     },
+     "mentions": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Mentions"
+     },
+     "news_z": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "News Z"
+     },
+     "reddit_z": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reddit Z"
+     },
+     "volume_z": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Volume Z"
+     },
+     "wiki_z": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Wiki Z"
+     }
+    },
+    "required": [
+     "date",
+     "volume_z",
+     "news_z",
+     "wiki_z",
+     "reddit_z",
+     "mentions",
+     "breadth"
+    ],
+    "title": "AttentionPoint",
+    "type": "object"
+   },
    "Bar": {
     "properties": {
      "close": {
@@ -333,6 +460,72 @@
      "results"
     ],
     "title": "BotVersions",
+    "type": "object"
+   },
+   "BreadthReturns": {
+    "properties": {
+     "breadth": {
+      "title": "Breadth",
+      "type": "string"
+     },
+     "d1": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "D1"
+     },
+     "d3": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "D3"
+     },
+     "d5": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "D5"
+     },
+     "n": {
+      "title": "N",
+      "type": "integer"
+     },
+     "up_rate_1d": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Up Rate 1D"
+     }
+    },
+    "required": [
+     "breadth",
+     "n",
+     "d1",
+     "d3",
+     "d5",
+     "up_rate_1d"
+    ],
+    "title": "BreadthReturns",
     "type": "object"
    },
    "Calibration": {
@@ -851,6 +1044,122 @@
      "sentiment"
     ],
     "title": "Disagreements",
+    "type": "object"
+   },
+   "DiscoveredName": {
+    "properties": {
+     "breadth": {
+      "title": "Breadth",
+      "type": "integer"
+     },
+     "close": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Close"
+     },
+     "reasons": {
+      "items": {
+       "type": "string"
+      },
+      "title": "Reasons",
+      "type": "array"
+     },
+     "ret_1d": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Ret 1D"
+     },
+     "rvol": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Rvol"
+     },
+     "symbol": {
+      "title": "Symbol",
+      "type": "string"
+     }
+    },
+    "required": [
+     "symbol",
+     "reasons",
+     "close",
+     "ret_1d",
+     "rvol",
+     "breadth"
+    ],
+    "title": "DiscoveredName",
+    "type": "object"
+   },
+   "DiscoveryOutcome": {
+    "properties": {
+     "d1": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "D1"
+     },
+     "d3": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "D3"
+     },
+     "d5": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "D5"
+     },
+     "date": {
+      "title": "Date",
+      "type": "string"
+     },
+     "names": {
+      "title": "Names",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "date",
+     "names",
+     "d1",
+     "d3",
+     "d5"
+    ],
+    "title": "DiscoveryOutcome",
     "type": "object"
    },
    "DownloadFile": {
@@ -2871,6 +3180,9 @@
       ],
       "title": "As Of"
      },
+     "attention": {
+      "$ref": "#/components/schemas/Attention"
+     },
      "by_confidence": {
       "additionalProperties": {
        "$ref": "#/components/schemas/Group"
@@ -2926,6 +3238,7 @@
      }
     },
     "required": [
+     "attention",
      "as_of",
      "calibration",
      "scored_outcomes",
@@ -3270,6 +3583,13 @@
    },
    "SymbolPage": {
     "properties": {
+     "attention": {
+      "items": {
+       "$ref": "#/components/schemas/AttentionPoint"
+      },
+      "title": "Attention",
+      "type": "array"
+     },
      "bots": {
       "additionalProperties": {
        "$ref": "#/components/schemas/SymbolStats"
@@ -3316,7 +3636,8 @@
      "trades",
      "signals",
      "scores",
-     "ideas"
+     "ideas",
+     "attention"
     ],
     "title": "SymbolPage",
     "type": "object"

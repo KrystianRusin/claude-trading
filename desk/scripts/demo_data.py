@@ -485,7 +485,41 @@ def sentiment(folder, days, rng):
                                     "symbols": [sym], "headline": rng.choice(HEADLINES).format(s=sym),
                                     "summary": "(made up)", "source": rng.choice(["benzinga", "reuters", "marketwatch"]),
                                     "url": f"https://example.com/news/{day}-{n}"}) + "\n")
-    (folder / "lifetime.json").write_text(json.dumps(lifetime(closed_all, records, bars, days), indent=1))
+    life = lifetime(closed_all, records, bars, days)
+    life["attention"] = attention(folder, days, rng)
+    (folder / "lifetime.json").write_text(json.dumps(life, indent=1))
+
+
+def attention(folder, days, rng):
+    """The sentiment bot's attention rows, discovery lists and their calibration (ticket 009), made up."""
+    conn = sqlite3.connect(folder / "trader.db")
+    conn.execute("CREATE TABLE IF NOT EXISTS attention (date TEXT, symbol TEXT, in_universe INTEGER, volume_z REAL, rvol REAL, "
+                 "news_z REAL, articles INTEGER, wiki_z REAL, page_views INTEGER, reddit_z REAL, mentions INTEGER, "
+                 "breadth INTEGER, acceleration REAL, close REAL, ret_1d REAL, PRIMARY KEY (date, symbol))")
+    for day in days[-20:]:
+        for sym in UNIVERSE:
+            zs = {k: round(rng.gauss(0.2, 1.1), 2) for k in ("volume_z", "news_z", "wiki_z", "reddit_z")}
+            put(conn, "attention", date=day.isoformat(), symbol=sym, in_universe=1, **zs,
+                mentions=max(0, int(rng.gauss(20, 15))), breadth=sum(z >= 2 for z in zs.values()))
+    conn.commit()
+    conn.close()
+    (folder / "discovery").mkdir(exist_ok=True)
+    picks = [("IRON", ["volume +4.8σ", "news +2.1σ"], 77.91, 37.1, 10.7), ("CLF", ["volume +2.4σ", "news +2.7σ"], 14.04, 6.2, 3.1),
+             ("SOUN", ["volume +3.1σ", "reddit +2.9σ", "wikipedia +2.2σ"], 9.85, 12.4, 4.4)]
+    history = []
+    for i, day in enumerate(days[-12:]):
+        names = [{"symbol": s, "reasons": r, "close": c, "ret_1d": m, "rvol": v, "breadth": len(r)}
+                 for s, r, c, m, v in (picks if i == 11 else rng.sample(picks, rng.randint(0, 3)))]
+        (folder / "discovery" / f"{day}.json").write_text(json.dumps(
+            {"date": day.isoformat(), "session": days[-13 + i].isoformat(), "collect_only": True, "names": names}))
+        if names and i < 9:
+            history.append({"date": day.isoformat(), "names": len(names),
+                            **{f"{h}d": {"n": len(names), "mean_pct": round(rng.gauss(0.3 * h, 2), 3)} for h in (1, 3, 5)}})
+    breadth = {}
+    for b, n, drift in (("0", 6200, 0.02), ("1", 1400, 0.05), ("2", 210, 0.25), ("3+", 40, -0.3)):
+        breadth[b] = {"all": {f"{h}d": {"n": n, "mean_pct": round(drift * h + rng.gauss(0, 0.05), 3),
+                                        "up_rate": round(0.5 + drift / 2, 3)} for h in (1, 3, 5)}}
+    return {"by": {"breadth": breadth}, "discovery": history}
 
 
 def lifetime(closed, records, bars, days, horizon=5):

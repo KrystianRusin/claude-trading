@@ -11,6 +11,8 @@ import { usePublic } from "../sections";
 import { useParam } from "../url";
 
 const price = (v: number) => money(v, true);
+const sigma = (z: number | null) => z === null ? "–"
+  : <span className={z >= 2 ? "up" : ""}>{Math.abs(z) < 0.05 ? "0.0" : `${z > 0 ? "+" : ""}${num(z, 1)}`}σ</span>;
 const DAYS = 180;
 
 function daysAgo(n: number) {
@@ -121,6 +123,21 @@ function SymbolView({ sym }: { sym: string }) {
               {s.ideas.length > 0 && (
                 <p className="small" style={{ marginBottom: 0 }}>Desk ideas: {s.ideas.map((i) => `${i.date} ${i.kind} (${i.side})`).join(", ")}</p>
               )}
+            </div>
+          )}
+          {s.attention.length > 0 && (
+            <div className="card">
+              <h2 style={{ marginBottom: 4 }}>Attention</h2>
+              <p className="muted small" style={{ margin: "0 0 12px" }}>How unusual the interest in {sym} was each session,
+                against its own normal (σ: 0 is normal, 2 or more is unusually high).</p>
+              <DataTable rows={[...s.attention].reverse().slice(0, 15)} columns={[
+                { key: "d", label: "Session", render: (a) => a.date },
+                { key: "v", label: "Volume", num: true, render: (a) => sigma(a.volume_z) },
+                { key: "n", label: "News", num: true, render: (a) => sigma(a.news_z) },
+                { key: "w", label: "Wikipedia", num: true, render: (a) => sigma(a.wiki_z) },
+                { key: "r", label: "Reddit", num: true, render: (a) => <>{sigma(a.reddit_z)}{a.mentions ? <span className="muted small"> ({a.mentions})</span> : null}</> },
+                { key: "b", label: "Elevated", num: true, render: (a) => `${a.breadth} of 4` },
+              ]} />
             </div>
           )}
           {s.signals.length > 0 && (

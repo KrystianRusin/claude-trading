@@ -243,6 +243,16 @@ class SymbolIdea(Model):
     legs: int
 
 
+class AttentionPoint(Model):
+    date: str
+    volume_z: Num
+    news_z: Num
+    wiki_z: Num
+    reddit_z: Num
+    mentions: int | None
+    breadth: int
+
+
 class SymbolPage(Model):
     symbol: str
     bots: dict[str, SymbolStats]
@@ -250,6 +260,7 @@ class SymbolPage(Model):
     signals: list[Signal]
     scores: list[ScorePoint]
     ideas: list[SymbolIdea]
+    attention: list[AttentionPoint]
 
 
 class Bar(Model):
@@ -621,7 +632,42 @@ class IdeaKind(Model):
     avg_r: Num
 
 
+class BreadthReturns(Model):
+    breadth: str
+    n: int
+    d1: Num
+    d3: Num
+    d5: Num
+    up_rate_1d: Num
+
+
+class DiscoveredName(Model):
+    symbol: str
+    reasons: list[str]
+    close: Num
+    ret_1d: Num
+    rvol: Num
+    breadth: int
+
+
+class DiscoveryOutcome(Model):
+    date: str
+    names: int
+    d1: Num
+    d3: Num
+    d5: Num
+
+
+class Attention(Model):
+    breadth: list[BreadthReturns]
+    discovery_date: str | None
+    discovery: list[DiscoveredName]
+    collect_only: bool
+    discovery_history: list[DiscoveryOutcome]
+
+
 class Research(Model):
+    attention: Attention
     as_of: str | None
     calibration: list[Calibration]
     scored_outcomes: int

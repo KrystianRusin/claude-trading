@@ -506,6 +506,36 @@ export interface components {
             /** Reviews */
             reviews: components["schemas"]["Review"][];
         };
+        /** Attention */
+        Attention: {
+            /** Breadth */
+            breadth: components["schemas"]["BreadthReturns"][];
+            /** Collect Only */
+            collect_only: boolean;
+            /** Discovery */
+            discovery: components["schemas"]["DiscoveredName"][];
+            /** Discovery Date */
+            discovery_date: string | null;
+            /** Discovery History */
+            discovery_history: components["schemas"]["DiscoveryOutcome"][];
+        };
+        /** AttentionPoint */
+        AttentionPoint: {
+            /** Breadth */
+            breadth: number;
+            /** Date */
+            date: string;
+            /** Mentions */
+            mentions: number | null;
+            /** News Z */
+            news_z: number | null;
+            /** Reddit Z */
+            reddit_z: number | null;
+            /** Volume Z */
+            volume_z: number | null;
+            /** Wiki Z */
+            wiki_z: number | null;
+        };
         /** Bar */
         Bar: {
             /** Close */
@@ -560,6 +590,21 @@ export interface components {
             changes: components["schemas"]["VersionChange"][];
             /** Results */
             results: components["schemas"]["VersionResult"][];
+        };
+        /** BreadthReturns */
+        BreadthReturns: {
+            /** Breadth */
+            breadth: string;
+            /** D1 */
+            d1: number | null;
+            /** D3 */
+            d3: number | null;
+            /** D5 */
+            d5: number | null;
+            /** N */
+            n: number;
+            /** Up Rate 1D */
+            up_rate_1d: number | null;
         };
         /** Calibration */
         Calibration: {
@@ -705,6 +750,34 @@ export interface components {
             items: components["schemas"]["DisagreementItem"][];
             quant: components["schemas"]["Tally"];
             sentiment: components["schemas"]["Tally"];
+        };
+        /** DiscoveredName */
+        DiscoveredName: {
+            /** Breadth */
+            breadth: number;
+            /** Close */
+            close: number | null;
+            /** Reasons */
+            reasons: string[];
+            /** Ret 1D */
+            ret_1d: number | null;
+            /** Rvol */
+            rvol: number | null;
+            /** Symbol */
+            symbol: string;
+        };
+        /** DiscoveryOutcome */
+        DiscoveryOutcome: {
+            /** D1 */
+            d1: number | null;
+            /** D3 */
+            d3: number | null;
+            /** D5 */
+            d5: number | null;
+            /** Date */
+            date: string;
+            /** Names */
+            names: number;
         };
         /** DownloadFile */
         DownloadFile: {
@@ -1270,6 +1343,7 @@ export interface components {
         Research: {
             /** As Of */
             as_of: string | null;
+            attention: components["schemas"]["Attention"];
             /** By Confidence */
             by_confidence: {
                 [key: string]: components["schemas"]["Group"];
@@ -1385,6 +1459,8 @@ export interface components {
         };
         /** SymbolPage */
         SymbolPage: {
+            /** Attention */
+            attention: components["schemas"]["AttentionPoint"][];
             /** Bots */
             bots: {
                 [key: string]: components["schemas"]["SymbolStats"];

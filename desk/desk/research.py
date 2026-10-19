@@ -73,7 +73,11 @@ def symbol(settings, sym, today=None):
                     ideas.append({"date": str(rec.get("date")), "kind": str(idea.get("kind") or ""),
                                   "side": str(legs[0].get("side") or ""), "conviction": views._float(idea.get("conviction")),
                                   "legs": len(idea.get("legs", []))})
-    return {"symbol": sym, "bots": stats, "trades": trades[:200], "signals": signals, "scores": scores, "ideas": ideas}
+    attention = [{"date": r["date"], **{k: views._num(r[k]) for k in ("volume_z", "news_z", "wiki_z", "reddit_z")},
+                  "mentions": r["mentions"], "breadth": r["breadth"]}
+                 for r in sources.attention_rows(settings, sym)] if "sentiment" in settings.bots else []
+    return {"symbol": sym, "bots": stats, "trades": trades[:200], "signals": signals, "scores": scores, "ideas": ideas,
+            "attention": attention}
 
 
 def bars(settings, sym, timeframe, start, end):
@@ -198,11 +202,39 @@ def research(settings, today=None):
     kinds = [{k: v for k, v in x.items() if k != "_r"} | {"avg_r": round(sum(x["_r"]) / len(x["_r"]), 4) if x["_r"] else None}
              for x in sorted(by_kind.values(), key=lambda x: -x["ideas"])]
     from datetime import datetime, timezone
-    return {"as_of": datetime.fromtimestamp(written, timezone.utc).isoformat(timespec="seconds") if written else None,
+    return {"attention": attention_summary(settings, life), "as_of": datetime.fromtimestamp(written, timezone.utc).isoformat(timespec="seconds") if written else None,
             "calibration": calibration, "scored_outcomes": int(views._float(cal.get("scores")) or 0),
             "by_score": _groups(by.get("score")), "by_confidence": _groups(by.get("confidence")),
             "news": news, "leaning": leaning, "ideas": sorted(ideas, key=lambda i: i["date"] or "", reverse=True)[:200],
             "idea_kinds": kinds}
+
+
+# ---- attention and discovery (claude-sentiment-trading ticket 009)
+
+def _mean(summary):
+    return views._float((summary or {}).get("mean_pct"))
+
+
+def attention_summary(settings, life):
+    """How forward returns differ with attention breadth (from the bot's lifetime.json), the newest discovery
+    list, and how past lists did. Counts and returns only: the bot's sources are not served."""
+    att = (life or {}).get("attention") or {}
+    breadth = []
+    for bucket, splits in sorted(((att.get("by") or {}).get("breadth") or {}).items()):
+        all_ = (splits or {}).get("all") or {}
+        breadth.append({"breadth": str(bucket), "n": int(views._float((all_.get("1d") or {}).get("n")) or 0),
+                        "d1": _mean(all_.get("1d")), "d3": _mean(all_.get("3d")), "d5": _mean(all_.get("5d")),
+                        "up_rate_1d": views._float((all_.get("1d") or {}).get("up_rate"))})
+    history = [{"date": str(x.get("date")), "names": int(views._float(x.get("names")) or 0), "d1": _mean(x.get("1d")),
+                "d3": _mean(x.get("3d")), "d5": _mean(x.get("5d"))} for x in (att.get("discovery") or [])
+               if isinstance(x, dict)]
+    rec = sources.sentiment_discovery(settings) or {}
+    names = [{"symbol": str(n.get("symbol")), "reasons": [str(r) for r in (n.get("reasons") or [])][:6],
+              "close": views._float(n.get("close")), "ret_1d": views._float(n.get("ret_1d")),
+              "rvol": views._float(n.get("rvol")), "breadth": int(views._float(n.get("breadth")) or 0)}
+             for n in rec.get("names", []) if isinstance(n, dict) and valid_symbol(str(n.get("symbol")))]
+    return {"breadth": breadth, "discovery_date": rec.get("date"), "discovery": names,
+            "collect_only": bool(rec.get("collect_only", True)), "discovery_history": history[::-1]}
 
 
 # ---- agent activity

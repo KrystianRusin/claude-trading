@@ -97,6 +97,53 @@ export default function Research() {
           { key: "r", label: "R", num: true, render: (i) => i.pnl_r === null ? "–" : <span className={signClass(i.pnl_r)}>{num(i.pnl_r)}</span> },
         ]} />
       </div>
+      <div className="card">
+        <h2 style={{ marginBottom: 4 }}>Attention and discovery</h2>
+        <p className="muted small" style={{ margin: "0 0 12px" }}>
+          How unusual the interest in each stock is, from trading volume, news, Wikipedia page views and Reddit mentions,
+          each against the stock's own normal. Breadth is how many of the four are unusually high. The discovery list is
+          smaller stocks outside the core universe with a surge in at least two of them, including volume or news.
+          {r.attention.collect_only && " It is collected and measured only; nothing trades it yet."}</p>
+        {!r.attention.discovery_date ? <div className="empty">No discovery list yet: collection starts the morning after the
+          first full-market volume snapshot.</div> : (
+          <>
+            <h3 className="sub">Discovered on {r.attention.discovery_date}</h3>
+            <DataTable rows={r.attention.discovery} empty="Nothing passed the filters that day." columns={[
+              { key: "s", label: "Symbol", render: (n) => <SymbolLink symbol={n.symbol} /> },
+              { key: "r", label: "Why", render: (n) => <span className="small">{n.reasons.join(", ")}</span> },
+              { key: "c", label: "Close", num: true, render: (n) => n.close === null ? "–" : `$${num(n.close)}` },
+              { key: "d", label: "Day's move", num: true, render: (n) => <span className={signClass(n.ret_1d)}>{pct(n.ret_1d, 1)}</span> },
+              { key: "v", label: "Volume vs normal", num: true, render: (n) => n.rvol === null ? "–" : `${num(n.rvol, 1)}×` },
+            ]} />
+          </>
+        )}
+        {r.attention.breadth.length > 0 && (
+          <>
+            <h3 className="sub" style={{ marginTop: 16 }}>Returns after attention, by breadth</h3>
+            <DataTable rows={r.attention.breadth} columns={[
+              { key: "b", label: "Sources elevated", render: (b) => b.breadth },
+              { key: "n", label: "Stock-days", num: true, render: (b) => b.n },
+              { key: "1", label: "Next day", num: true, render: (b) => <span className={signClass(b.d1)}>{pct(b.d1)}</span> },
+              { key: "3", label: "3 days", num: true, render: (b) => <span className={signClass(b.d3)}>{pct(b.d3)}</span> },
+              { key: "5", label: "5 days", num: true, render: (b) => <span className={signClass(b.d5)}>{pct(b.d5)}</span> },
+              { key: "u", label: "Up next day", num: true, render: (b) => pct(b.up_rate_1d === null ? null : b.up_rate_1d * 100, 0, false) },
+            ]} />
+            <div className="muted small">Average return from the next session's open. Paper results; small samples say little.</div>
+          </>
+        )}
+        {r.attention.discovery_history.length > 0 && (
+          <>
+            <h3 className="sub" style={{ marginTop: 16 }}>How past lists did</h3>
+            <DataTable rows={r.attention.discovery_history.slice(0, 20)} columns={[
+              { key: "d", label: "List", render: (h) => h.date },
+              { key: "n", label: "Names", num: true, render: (h) => h.names },
+              { key: "1", label: "Next day", num: true, render: (h) => <span className={signClass(h.d1)}>{pct(h.d1)}</span> },
+              { key: "3", label: "3 days", num: true, render: (h) => <span className={signClass(h.d3)}>{pct(h.d3)}</span> },
+              { key: "5", label: "5 days", num: true, render: (h) => <span className={signClass(h.d5)}>{pct(h.d5)}</span> },
+            ]} />
+          </>
+        )}
+      </div>
       {memory && <p className="muted small">The bot's hypotheses and how they moved up the ladder are in the <Link to="/notebook?bot=sentiment">notebook</Link>.</p>}
     </div>
   );
