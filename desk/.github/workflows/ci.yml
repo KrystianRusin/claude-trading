@@ -1,0 +1,68 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  api:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"  # matches the Raspberry Pi
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Shell syntax
+        run: for f in scripts/*.sh; do bash -n "$f"; done
+      - name: Tests
+        run: python -m pytest -q
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - name: Typecheck and build
+        run: npm run build
+      - run: tar -czf web.tar.gz -C dist .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web
+          path: web/web.tar.gz
+
+  # The Pi cannot build the frontend quickly, so every commit on main gets its build as a release
+  # asset, build-<first 12 of the sha>/web.tar.gz, which scripts/deploy.sh downloads. Only the newest
+  # 5 build releases are kept.
+  publish:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [api, web]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: web
+      - name: Release the build
+        run: |
+          tag="build-${GITHUB_SHA::12}"
+          gh release create "$tag" web.tar.gz --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --prerelease --title "web build ${GITHUB_SHA::12}" --notes "Frontend build for ${GITHUB_SHA}, fetched by the Pi's deploy."
+      - name: Keep the newest 5 builds
+        run: |
+          gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName,createdAt \
+            --jq '[.[] | select(.tagName | startswith("build-"))] | sort_by(.createdAt) | reverse | .[5:] | .[].tagName' |
+          while read -r tag; do gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes; done

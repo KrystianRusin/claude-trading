@@ -1,0 +1,24 @@
+{
+  "host": "127.0.0.1",
+  "port": 8787,
+  "bots": {
+    "quant": {"label": "claude-quant", "data_dir": "~/claude-trade/data"},
+    "sentiment": {"label": "claude-sentiment-trading", "data_dir": "~/claude-sentiment-trading/data"}
+  },
+  "books": ["paper"],
+  "sections": {
+    "equity": true,
+    "trades": true,
+    "symbols": true,
+    "scores": true,
+    "compare": true,
+    "versions": true,
+    "version_content": false,
+    "positions": false,
+    "ops": true,
+    "ops_errors": false,
+    "prices": false
+  },
+  "cache_seconds": 30,
+  "rate_limit_per_minute": 240
+}

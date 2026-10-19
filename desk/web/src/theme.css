@@ -1,0 +1,133 @@
+/* Colour tokens. Bots keep their slot everywhere: quant = series-1, sentiment = series-2 (validated as a
+   pair in light and dark with the dataviz palette checker). Status colours are only for job states. */
+:root {
+  color-scheme: light;
+  --page: #f9f9f7;
+  --surface: #fcfcfb;
+  --ink: #0b0b0b;
+  --ink-2: #52514e;
+  --muted: #6f6d68;
+  --grid: #e1e0d9;
+  --axis: #c3c2b7;
+  --border: rgba(11, 11, 11, 0.1);
+  --hover: rgba(11, 11, 11, 0.04);
+  --quant: #2a78d6;
+  --sentiment: #eb6834;
+  --benchmark: #898781;
+  --up: #006300;
+  --down: #c62f2f;
+  --neg-bar: #e34948;
+  --pos-bar: #2a78d6;
+  --good: #0ca30c;
+  --warning: #fab219;
+  --critical: #d03b3b;
+  --font: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --page: #0d0d0d;
+    --surface: #1a1a19;
+    --ink: #f0efec;
+    --ink-2: #c3c2b7;
+    --muted: #9a988f;
+    --grid: #2c2c2a;
+    --axis: #383835;
+    --border: rgba(255, 255, 255, 0.1);
+    --hover: rgba(255, 255, 255, 0.05);
+    --quant: #3987e5;
+    --sentiment: #d95926;
+    --benchmark: #898781;
+    --up: #0ca30c;
+    --down: #e66767;
+    --neg-bar: #e66767;
+    --pos-bar: #3987e5;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d;
+  --surface: #1a1a19;
+  --ink: #f0efec;
+  --ink-2: #c3c2b7;
+  --muted: #9a988f;
+  --grid: #2c2c2a;
+  --axis: #383835;
+  --border: rgba(255, 255, 255, 0.1);
+  --hover: rgba(255, 255, 255, 0.05);
+  --quant: #3987e5;
+  --sentiment: #d95926;
+  --benchmark: #898781;
+  --up: #0ca30c;
+  --down: #e66767;
+  --neg-bar: #e66767;
+  --pos-bar: #3987e5;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--page); color: var(--ink); font-family: var(--font); font-size: 15px; line-height: 1.45; }
+a { color: inherit; }
+button, select, input { font: inherit; color: inherit; }
+
+.shell { max-width: 1180px; margin: 0 auto; padding: 0 16px 48px; }
+header.top { display: flex; align-items: center; gap: 24px; padding: 18px 0 14px; flex-wrap: wrap; }
+header.top .brand { font-weight: 650; font-size: 17px; letter-spacing: -0.01em; text-decoration: none; }
+header.top nav { display: flex; gap: 4px; flex-wrap: wrap; }
+header.top nav a { text-decoration: none; color: var(--ink-2); padding: 6px 10px; border-radius: 6px; }
+header.top nav a:hover { background: var(--hover); }
+header.top nav a.active { color: var(--ink); background: var(--hover); font-weight: 600; }
+header.top .as-of { margin-left: auto; color: var(--muted); font-size: 13px; }
+
+h1 { font-size: 22px; margin: 8px 0 4px; letter-spacing: -0.01em; }
+h2 { font-size: 16px; margin: 0 0 12px; }
+.lede { color: var(--ink-2); margin: 0 0 20px; max-width: 70ch; }
+
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+.grid { display: grid; gap: 16px; }
+.grid.two { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+.grid.tiles { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.grid.tiles.pair { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.stack { display: flex; flex-direction: column; gap: 16px; }
+.row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+
+.tile .label { color: var(--ink-2); font-size: 13px; }
+.tile .value { font-size: 24px; font-weight: 600; margin-top: 2px; }
+.tile .delta { font-size: 13px; margin-top: 2px; }
+.up { color: var(--up); }
+.down { color: var(--down); }
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+
+.key { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-2); font-size: 13px; }
+.key i { display: inline-block; width: 14px; height: 2px; border-radius: 1px; }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
+.legend { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 8px; }
+
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th { text-align: left; font-weight: 600; color: var(--ink-2); font-size: 13px; padding: 6px 8px; border-bottom: 1px solid var(--axis); white-space: nowrap; }
+th button { background: none; border: 0; padding: 0; cursor: pointer; font-weight: 600; color: inherit; }
+td { padding: 6px 8px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+tr:hover td { background: var(--hover); }
+.scroll { overflow-x: auto; }
+
+.filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
+.filters select, .filters input { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.seg button { background: var(--surface); border: 0; padding: 5px 10px; cursor: pointer; color: var(--ink-2); }
+.seg button.on { background: var(--hover); color: var(--ink); font-weight: 600; }
+.pager { display: flex; gap: 8px; align-items: center; margin-top: 12px; }
+.pager button { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+.pager button:disabled { opacity: 0.4; cursor: default; }
+
+.status { display: inline-flex; align-items: center; gap: 6px; }
+.status .dot.ok { background: var(--good); }
+.status .dot.failed, .status .dot.lost { background: var(--critical); }
+.status .dot.running { background: var(--warning); }
+.badge { display: inline-block; font-size: 11px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--border); color: var(--ink-2); margin-left: 6px; }
+
+.chart { width: 100%; height: 280px; position: relative; }
+.empty { color: var(--muted); padding: 24px 0; text-align: center; }
+.tooltip { position: absolute; pointer-events: none; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font-size: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.12); white-space: nowrap; z-index: 2; }
+.tooltip strong { font-weight: 600; }
+footer { margin-top: 40px; color: var(--muted); font-size: 12px; }

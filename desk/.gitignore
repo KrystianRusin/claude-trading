@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+# Runtime state: the settings (desk.json) and the downloaded web builds. Never committed.
+data/
+*.db
+*.db-wal
+*.db-shm
+web/node_modules/
+web/dist/
