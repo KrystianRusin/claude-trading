@@ -1,0 +1,12 @@
+.env
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+HALT
+# Runtime state: config, watchlist, strategies, memory, journal, logs, reports. Never committed.
+data/
+# SQLite databases are runtime state, wherever a test or tool creates one
+*.db
+*.db-wal
+*.db-shm
