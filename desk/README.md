@@ -1,130 +1,99 @@
 # claude-desk
 
-A read-only dashboard over two paper-trading bots, [claude-quant](https://github.com/KrystianRusin/claude-quant)
-and [claude-sentiment-trading](https://github.com/KrystianRusin/claude-sentiment-trading). It runs on the
-same Raspberry Pi and reads each bot's `data/trader.db`. It can be published on the internet with
-Tailscale Funnel, showing only the sections the owner switches on.
+A read-only dashboard for two paper-trading bots,
+[claude-quant](https://github.com/KrystianRusin/claude-quant) and
+[claude-sentiment-trading](https://github.com/KrystianRusin/claude-sentiment-trading). It runs on
+the same Raspberry Pi, reads each bot's SQLite database, and can be published with Tailscale Funnel.
+The owner chooses which parts are public.
 
-- **API:** FastAPI (`desk/`). It has only GET routes, opens every database read-only, and stops any
-  query after 2 seconds. There is no general query endpoint: each view picks its fields in code.
-- **Web:** React + Vite + TanStack Query (`web/`), with TradingView lightweight-charts for time
-  series. It refreshes every 30 seconds by polling; there are no long-lived connections.
-- **Not used:** no message bus, no cache server, and nothing that writes. The app caches answers in
-  memory for 30 s and rate-limits each visitor.
+- The API is FastAPI with GET routes only. Every database is opened read-only, and queries are stopped
+  after 2 seconds. There is no generic query endpoint: each view picks its fields in code, and every
+  route has a pydantic response model.
+- The frontend uses React, Vite, TanStack Query and TradingView lightweight-charts. The TypeScript types are
+  generated from the API's OpenAPI schema. Pages poll every 30 seconds.
+- Answers are cached in memory for 30 seconds and each visitor is rate-limited, so there is no
+  message bus or cache server.
 
 ## Pages
 
-| Page | Section(s) | Shows |
-|---|---|---|
-| Overview | `equity`, `symbols`, `scores`, `positions`, `prices` | Each bot's equity, today's P&L, return and drawdown; return curves since the start and for today; hot right now; best and worst symbols; where the bots disagree; open positions; the SPY line |
-| Compare | `compare` | Return, volatility, Sharpe, drawdown and best and worst day per bot; the daily-return difference with its 95% range and a verdict |
-| Trades | `trades` | Every closed trade, with filters kept in the URL, an R histogram and win rate and expectancy |
-| What changed | `versions`, `version_content` | Every config, strategy, watchlist, prompt and memory change; results per strategy and config version |
-| Operations | `ops`, `ops_errors` | Job runs and deploys: status, timing, failures; the error text only with `ops_errors` |
+| Page | Shows |
+|---|---|
+| Overview | Equity, today's P&L and drawdown for each bot, return curves, hot symbols, best and worst symbols, what each bot holds |
+| Holdings | Open positions with unrealized P&L, today's move, days held and distance to the stop |
+| Compare | Return, volatility, Sharpe and drawdown side by side, the daily-return difference with its 95% range, and days the bots disagreed |
+| Trades | Every closed trade with filters and an R histogram. Each trade opens a price chart with its entry, exit, stop and target |
+| Symbols | One symbol across both bots: trades, news scores, signals, price chart and headlines |
+| Replay | One session played back minute by minute: equity, fills and positions |
+| What changed | Every config, strategy, prompt and memory change marked on the return curve, with results before and after and the diff |
+| Research | Sentiment score calibration, news volume and how the desk's ideas turned out |
+| Notebook | The bots' journals and how each memory entry moved from hypothesis to confirmed or retired |
+| Agent activity | Each night's review: what changed and whether the guard accepted it |
+| Operations | Job runs and deploys |
+| Downloads | Nightly CSV and Parquet exports of trades, daily results and versions |
 
-The symbol page, research pages and visitor features come later (tickets 007 and 008).
+Filters, the selected bot, day and time are kept in the URL, so any view can be shared as a link.
 
 ## What is public
 
-`defaults/desk.json` holds the defaults. Your `data/desk.json` (gitignored) overrides them, and
-`.venv/bin/python -m desk.config` prints what is public. A section that is off answers 404 and its
-page or panel disappears. An unknown setting or section name is an error, so a typo can't quietly
-publish something.
+Each part of the API belongs to a section that can be switched on or off. `defaults/desk.json` holds
+the defaults, and the gitignored `data/desk.json` overrides them. A section that is off answers 404
+and its page disappears. Unknown setting names are refused, so a typo can't publish something by
+accident. `.venv/bin/python -m desk.config` prints what is public.
 
-| Section | Default | Why |
-|---|---|---|
-| `equity`, `trades`, `symbols`, `scores`, `compare`, `versions`, `ops` | on | The bots' results and how they got there |
-| `positions` | off | Shows what each bot holds right now |
-| `version_content` | off | The text of configs, strategies, prompts and memory |
-| `ops_errors` | off | The end of a failed job's output, which can hold paths or account details |
-| `prices` | off | Raw price bars (the SPY line): check Alpaca's and the data provider's terms before showing them publicly |
+On by default: results, trades, holdings, symbols, scores, comparisons, versions, replay, research,
+operations and downloads. Off by default: journals, memory, agent activity, version contents, job
+error text, headlines and raw price bars. Headlines and price bars stay off until the data
+provider's terms allow showing them.
 
-Some things are never served, whatever the settings say:
-- order and client order ids
-- the bots' reasons and model text
-- prompt and memory hashes on trades
-- file paths
-- anything from `.env`
-- the replay and dry-run books, unless you add them to `books`
+Some things are never served: order ids, the bots' reasoning text on trades and scores, article
+summaries, file paths, anything from `.env`, and the simulated books. The tests plant secrets in the
+fixture data and check that none of them appear in any response.
 
-Tests check this against data with planted secrets.
-
-```json
-{
-  "bots": {
-    "quant": {"data_dir": "/home/krystian/claude-trade/data"},
-    "sentiment": {"data_dir": "/home/krystian/claude-sentiment-trading/data"}
-  },
-  "sections": {"positions": true}
-}
-```
-
-## On the Pi
+## Running on the Pi
 
 ```bash
 git clone https://github.com/KrystianRusin/claude-desk ~/claude-desk
 ~/claude-desk/scripts/setup.sh
 ```
 
-`setup.sh` does the following (it is safe to re-run):
-- makes the venv;
-- asks where each bot's data folder is;
-- runs the tests and `python -m desk.check`;
-- downloads the web build of the current commit;
-- installs the `claude-desk` systemd user service on `127.0.0.1:8787` (it needs `sudo` once, to let
-  the service run without a login session);
-- checks for Tailscale and offers to install it;
-- installs the 5-minute deploy cron job.
+`setup.sh` is safe to re-run. It creates the virtual environment and asks where each bot's data
+folder is. It then runs the tests, downloads the web build for the current commit and installs a
+systemd user service on `127.0.0.1:8787`. Finally it offers to install Tailscale and adds two cron
+jobs: the deploy check and the nightly export.
 
-**The service is sandboxed.** It runs as your user, because SQLite needs to create a `-shm` file
-next to a database to read it safely while a bot writes. Inside the sandbox:
-- the system and your home are read-only, except the two bot data folders;
-- the bots' `.env` files, `~/.config/paper-trader`, `~/.config/sentiment-trader` and `~/.ssh` are
-  hidden;
-- CPU and memory are capped (`CPUQuota=50%`, `MemoryMax=300M`, `Nice=10`), so the traders come
-  first.
+The service runs as the bots' user, because SQLite needs to create a `-shm` file next to a database
+to read it while a bot writes. systemd sandboxes it: the system and home folder are read-only
+except the two bot data folders, the bots' `.env` files and `~/.ssh` are hidden, and CPU and memory
+are capped so the traders come first.
 
-### Publishing it
+To publish, run `sudo tailscale up` once, turn on HTTPS and the Funnel attribute in the Tailscale
+admin console, then `sudo tailscale funnel --bg 8787`. The Pi accepts no inbound connections; Funnel
+proxies to the local port.
 
-Nothing is public until you run Funnel yourself:
+## Deploys
 
-1. `sudo tailscale up` logs the Pi into your tailnet (once).
-2. In the Tailscale admin console, turn on HTTPS certificates and give this machine the `funnel`
-   attribute.
-3. `sudo tailscale funnel --bg 8787` publishes the dashboard at `https://<pi>.<tailnet>.ts.net`.
+Every push runs the API tests, a check that the generated types are current, and the web build on
+GitHub Actions. On `main`, CI publishes the build as a release asset so the Pi never has to build
+the frontend. `scripts/deploy.sh` runs on the Pi every 5 minutes. When a new commit has passed CI,
+it downloads the build, fast-forwards, runs the checks, restarts the service and checks that it
+answers. If anything fails it rolls back to the previous commit and build.
 
-To stop publishing, run `sudo tailscale funnel --https=443 off`. Funnel only proxies to the
-local port. The Pi accepts no inbound connections, and the dashboard is never on your LAN.
-
-### Deploys
-
-Every push to `main` runs CI (`.github/workflows/ci.yml`): the API tests, a typecheck and the web
-build. On `main`, CI then releases the build as `build-<sha>/web.tar.gz` and keeps the newest 5.
-
-On the Pi, `scripts/deploy.sh` runs every 5 minutes. When a new commit has passed CI, it:
-1. downloads that commit's build and fast-forwards the checkout;
-2. runs the checks and points `data/web/current` at the new build;
-3. restarts the service and checks it answers.
-
-If a check or the health check fails, the deploy puts back the previous commit and build, then
-waits for the next commit.
-
-Deploy logs are in `data/deploy.log`. The service logs with `journalctl --user -u claude-desk`.
-`NTFY_TOPIC` in `.env` sends deploy notifications.
-
-## Working on it
+## Development
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/python -m pytest
-.venv/bin/python scripts/demo_data.py data/demo        # made-up data for both bots
-DESK_CONFIG=data/demo/desk.json .venv/bin/python -m desk.app
-cd web && npm install && npm run dev                   # http://localhost:5173, proxying the API
+.venv/bin/python scripts/demo_data.py data/demo                  # made-up data for both bots
+DESK_CONFIG=data/demo/desk.json .venv/bin/python -m desk.export  # optional: the download files
+DESK_CONFIG=data/demo/desk.json .venv/bin/python -m desk.app     # http://127.0.0.1:8787
+cd web && npm install && npm run dev                             # http://localhost:5173, proxies the API
 ```
 
-- **Schema copy:** `tests/schema/` is a copy of the bots' shared core migrations. A test pins their
-  hashes, the same ones the bots pin. When a bot adds a core migration, copy it in and update
-  `CORE_SHA256` in `tests/test_views.py`.
-- **API changes:** a new view gets its own function in `desk/views.py`, a section in
-  `desk/config.py` (and `defaults/desk.json`), a route in `desk/app.py`, and tests in
-  `tests/test_exposure.py` showing it is hidden when its section is off.
+- After changing a response model or route, run `scripts/gen_types.sh`. It rewrites
+  `web/openapi.json` and `web/src/schema.d.ts`, and a test and CI fail until both are current.
+  FastAPI and pydantic are pinned so the schema is the same everywhere.
+- `tests/schema/` is a copy of the bots' shared database migrations, pinned by hash. When a bot adds
+  a shared migration, copy it in and update `CORE_SHA256` in `tests/test_views.py`.
+- A new view needs a function in `desk/views.py` (or `research.py`), a section in `desk/config.py`
+  and `defaults/desk.json`, a route and model in `desk/app.py` and `desk/models.py`, and a test in
+  `tests/test_exposure.py` that it is hidden when its section is off.

@@ -27,10 +27,17 @@ SECTIONS = {
     "compare": "The two bots compared: returns, risk and the difference with its 95% range",
     "versions": "When the config, strategies, watchlist, prompts and memory changed, and results by version",
     "version_content": "The content of each version: configs, strategy code, prompts, memory",
-    "positions": "Open positions",
+    "positions": "Open positions and their unrealized P&L (the Holdings page), and positions in today's replay",
     "ops": "Job runs and deploys: status, timing, failures (without their output)",
     "ops_errors": "The end of a failed job's output, which can hold paths or account details",
     "prices": "Price bars and the SPY benchmark (check the data licences before turning on)",
+    "replay": "Replay a past day minute by minute: equity, fills and (once the day is over) positions",
+    "journal": "The bots' daily journals, as they wrote them",
+    "memory": "The bots' memory: lessons and hypotheses, and how each moved up or down the ladder",
+    "downloads": "Nightly CSV and Parquet files of the public trades, daily results and versions",
+    "research": "The sentiment bot's research: score calibration, news volume, desk ideas and how they turned out",
+    "headlines": "News headlines with their source and link (check the news provider's terms before turning on)",
+    "agent": "What the bots did after each session: reviews, guard results, changelog entries, memory changes",
 }
 
 

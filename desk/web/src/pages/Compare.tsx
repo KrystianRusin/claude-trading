@@ -1,9 +1,11 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 
-import { type BotName, type Compare as CompareAnswer, qs, useApi } from "../api";
+import { type BotName, type Compare as CompareAnswer, type Disagreements, qs, useApi } from "../api";
 import { Legend, type Series, TimeChart } from "../components/TimeChart";
-import { Bot, Loading, Segmented } from "../components/ui";
+import { Bot, DataTable, Loading, Segmented } from "../components/ui";
 import { BOT_COLOR, BOT_LABEL, num, pct } from "../format";
+import { SymbolLink } from "../sections";
+import { useParam } from "../url";
 
 const ROWS: { key: string; label: string; show: (v: number | null | undefined) => string }[] = [
   { key: "total_return_pct", label: "Return", show: (v) => pct(v) },
@@ -22,8 +24,39 @@ function startFor(range: string) {
   return d.toISOString().slice(0, 10);
 }
 
-export default function Compare() {
-  const [range, setRange] = useState("all");
+function result(r: number | null) {
+  if (r === null) return <span className="muted">did not trade</span>;
+  return <span className={r > 0 ? "up" : r < 0 ? "down" : ""}>{r > 0 ? "+" : ""}{num(r)}R</span>;
+}
+
+function DisagreeCard({ days, period }: { days: number; period: string }) {
+  const res = useApi<Disagreements>(`/api/disagreements${qs({ days })}`);
+  if (!res.data) return <div className="card"><h2>When they disagree</h2><Loading error={res.error} /></div>;
+  const d = res.data;
+  const tally = (bot: BotName, t: Disagreements["quant"]) => t.traded
+    ? <>{BOT_LABEL[bot]} traded {t.traded} of them and won {t.won} ({pct((t.won / t.traded) * 100, 0, false)}), averaging {num(t.avg_r)}R.</>
+    : <>{BOT_LABEL[bot]} traded none of them.</>;
+  return (
+    <div className="card">
+      <h2 style={{ marginBottom: 4 }}>When they disagree</h2>
+      <p className="muted small" style={{ margin: "0 0 12px" }}>
+        Days when Quant's signal on a symbol pointed one way and Sentiment's news score for that day pointed the other.
+        {d.items.length > 0 && <> {d.items.length} times {period}. {tally("quant", d.quant)} {tally("sentiment", d.sentiment)}</>}
+      </p>
+      <DataTable rows={d.items} empty="They have not disagreed in this period." columns={[
+        { key: "d", label: "Day", render: (i) => i.date, sort: (i) => i.date },
+        { key: "s", label: "Symbol", render: (i) => <SymbolLink symbol={i.symbol} />, sort: (i) => i.symbol },
+        { key: "q", label: "Quant", render: (i) => <>{i.quant}{!i.quant_entered && <span className="badge">skipped</span>}</> },
+        { key: "n", label: "Sentiment", render: (i) => <>{i.sentiment} <span className="muted small">{i.score > 0 ? "+" : ""}{i.score} × {num(i.confidence)}</span></> },
+        { key: "qr", label: "Quant's result", num: true, render: (i) => result(i.quant_r), sort: (i) => i.quant_r },
+        { key: "sr", label: "Sentiment's result", num: true, render: (i) => result(i.sentiment_r), sort: (i) => i.sentiment_r },
+      ]} />
+    </div>
+  );
+}
+
+export default function Compare({ sections }: { sections: string[] }) {
+  const [range, setRange] = useParam("range", "all", ["30", "90", "all"] as const);
   const res = useApi<CompareAnswer>(`/api/compare${qs({ start: startFor(range) })}`);
   const c = res.data;
   const series: Series[] = useMemo(() => c ? (Object.keys(c.curves) as BotName[]).map((bot) => ({
@@ -75,6 +108,8 @@ export default function Compare() {
               </tbody>
             </table>
           </div>
+          {sections.includes("scores") && <DisagreeCard days={range === "all" ? 3650 : Number(range)}
+                                                                   period={range === "all" ? "so far" : `in the last ${range} days`} />}
         </>
       )}
     </div>

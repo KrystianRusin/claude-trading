@@ -1,4 +1,8 @@
-fastapi>=0.115
+# fastapi and pydantic are pinned: the API schema they generate is committed (web/openapi.json) and tested.
+fastapi==0.146.0
+pydantic==2.14.1
 uvicorn>=0.30
 httpx>=0.27
 pytest>=8.0
+# Parquet downloads (desk/export.py). Only where pip has a prebuilt wheel; elsewhere the export is CSV only.
+pyarrow>=17; platform_machine == "x86_64" or platform_machine == "aarch64"

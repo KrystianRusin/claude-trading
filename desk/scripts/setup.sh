@@ -5,8 +5,8 @@
 #
 # Creates the venv, writes data/desk.json (where the bots' data is; everything else keeps the
 # defaults in defaults/desk.json), installs the dashboard as a sandboxed systemd user service,
-# downloads the current web build, checks for Tailscale (installing it if you agree), and installs
-# the deploy cron job. It never makes the dashboard public: that is `tailscale funnel`, run by you.
+# writes the first download files, downloads the current web build, checks for Tailscale (installing it if
+# you agree), and installs the cron jobs (deploys, nightly download files). It never makes the dashboard public: that is `tailscale funnel`, run by you.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 REPO="$PWD"
@@ -48,6 +48,9 @@ print(s.bots["quant"]["data_dir"], s.bots["sentiment"]["data_dir"], s.port)')
 step "Tests and data check"
 "$PY" -m pytest -q
 "$PY" -m desk.check || { echo "Fix the problems above (is each bot deployed with its database migrated?)"; exit 1; }
+
+step "Download files (rewritten nightly by cron)"
+"$PY" -m desk.export
 
 step "Web build for this commit"
 sha=$(git rev-parse --short=12 HEAD)
@@ -128,7 +131,7 @@ To stop publishing: sudo tailscale funnel --https=443 off
 Before publishing, check what is public: .venv/bin/python -m desk.config
 EOF
 
-step "Deploy cron job"
+step "Cron jobs (deploys every 5 minutes, download files nightly)"
 scripts/cron.sh install
 scripts/cron.sh print
 echo

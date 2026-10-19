@@ -1,9 +1,12 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
+import { Link } from "react-router-dom";
 
-import { type Benchmark, type BotName, type EquityBook, type Hot, type Positions, qs, type SymbolRow, useApi } from "../api";
+import { type Benchmark, type BotName, type EquityBook, type Holdings, type Hot, qs, type SymbolRow, useApi } from "../api";
 import { Legend, type Series, TimeChart } from "../components/TimeChart";
 import { Bot, DataTable, Loading, Segmented, Tile } from "../components/ui";
 import { BOT_ABOUT, BOT_COLOR, BOT_LABEL, money, num, pct, signClass, signedMoney } from "../format";
+import { SymbolLink } from "../sections";
+import { useParam } from "../url";
 
 const has = (sections: string[], s: string) => sections.includes(s);
 
@@ -31,7 +34,7 @@ function BotTiles({ b }: { b: EquityBook }) {
 }
 
 function EquityChart({ books, benchmark }: { books: EquityBook[]; benchmark?: Benchmark }) {
-  const [range, setRange] = useState<"all" | "today">("all");
+  const [range, setRange] = useParam("range", "all", ["all", "today"] as const);
   const series: Series[] = useMemo(() => {
     const out: Series[] = books.map((b) => {
       if (range === "today") {
@@ -84,7 +87,7 @@ function HotPanel({ sections }: { sections: string[] }) {
         <div>
           <Bot bot="quant" />
           <DataTable rows={h.quant} empty="No signals yet." columns={[
-            { key: "s", label: "Symbol", render: (r) => <>{r.symbol}{r.new_on_watchlist && <span className="badge">new on watchlist</span>}</> },
+            { key: "s", label: "Symbol", render: (r) => <><SymbolLink symbol={r.symbol} bold={false} />{r.new_on_watchlist && <span className="badge">new on watchlist</span>}</> },
             { key: "n", label: "Signals", num: true, render: (r) => r.signals },
             { key: "e", label: "Entered", num: true, render: (r) => r.entries },
             { key: "side", label: "Last side", render: (r) => r.side ?? "–" },
@@ -94,7 +97,7 @@ function HotPanel({ sections }: { sections: string[] }) {
           <div>
             <Bot bot="sentiment" />
             <DataTable rows={h.sentiment} empty="No scores yet." columns={[
-              { key: "s", label: "Symbol", render: (r) => r.symbol },
+              { key: "s", label: "Symbol", render: (r) => <SymbolLink symbol={r.symbol} bold={false} /> },
               { key: "h", label: "Attention", num: true, render: (r) => num(r.heat, 1) },
               { key: "d", label: "Lean", render: (r) => r.direction },
               { key: "a", label: "Articles", num: true, render: (r) => r.articles },
@@ -109,7 +112,7 @@ function HotPanel({ sections }: { sections: string[] }) {
         <div style={{ marginTop: 16 }}>
           <h2>The bots disagree</h2>
           <ul style={{ margin: 0, paddingLeft: 18 }}>
-            {h.disagree.map((d) => <li key={d.symbol}><strong>{d.symbol}</strong>: Quant went {d.quant}, Sentiment reads it {d.sentiment}.</li>)}
+            {h.disagree.map((d) => <li key={d.symbol}><SymbolLink symbol={d.symbol} />: Quant went {d.quant}, Sentiment reads it {d.sentiment}.</li>)}
           </ul>
         </div>
       )}
@@ -118,8 +121,11 @@ function HotPanel({ sections }: { sections: string[] }) {
 }
 
 function SymbolsPanel() {
-  const [days, setDays] = useState<7 | 30 | 0>(30);
-  const [minTrades, setMinTrades] = useState(3);
+  const [daysParam, setDaysParam] = useParam("days", "30", ["7", "30", "0"] as const);
+  const [minParam, setMinParam] = useParam("min", "3", ["1", "3", "5", "10"] as const);
+  const days = Number(daysParam) as 7 | 30 | 0, minTrades = Number(minParam);
+  const setDays = (d: 7 | 30 | 0) => setDaysParam(String(d) as typeof daysParam);
+  const setMinTrades = (n: number) => setMinParam(String(n) as typeof minParam);
   const res = useApi<{ symbols: SymbolRow[] }>(`/api/symbols${qs({ days, min_trades: minTrades })}`);
   return (
     <div className="card">
@@ -137,7 +143,7 @@ function SymbolsPanel() {
       {res.data ? (
         <DataTable rows={res.data.symbols} initialSort={{ key: "pnl", desc: true }}
                    empty="No symbol has enough trades in this window yet." columns={[
-          { key: "symbol", label: "Symbol", render: (r) => r.symbol, sort: (r) => r.symbol },
+          { key: "symbol", label: "Symbol", render: (r) => <SymbolLink symbol={r.symbol} bold={false} />, sort: (r) => r.symbol },
           { key: "bot", label: "Bot", render: (r) => <Bot bot={r.bot as BotName} />, sort: (r) => r.bot },
           { key: "pnl", label: "P&L", num: true, render: (r) => <span className={signClass(r.pnl)}>{signedMoney(r.pnl)}</span>, sort: (r) => r.pnl },
           { key: "n", label: "Trades", num: true, render: (r) => r.trades, sort: (r) => r.trades },
@@ -149,24 +155,31 @@ function SymbolsPanel() {
   );
 }
 
-function PositionsPanel() {
-  const res = useApi<Positions>("/api/positions");
-  if (!res.data) return <Loading error={res.error} />;
+function HoldingsPanel() {
+  const res = useApi<Holdings>("/api/positions");
+  if (!res.data) return null;
+  const books = [...res.data.books].sort((a, b) => (a.bot === b.bot ? 0 : a.bot === "sentiment" ? -1 : 1));
   return (
     <div className="card">
-      <h2>Open positions</h2>
-      {res.data.books.map((b) => (
-        <div key={`${b.bot}-${b.book}`} style={{ marginBottom: 12 }}>
-          <Bot bot={b.bot} />
-          <DataTable rows={b.positions} empty="Flat." columns={[
-            { key: "s", label: "Symbol", render: (r) => r.symbol },
-            { key: "q", label: "Qty", num: true, render: (r) => r.qty },
-            { key: "e", label: "Entry", num: true, render: (r) => money(r.avg_entry_price, true) },
-            { key: "p", label: "Price", num: true, render: (r) => money(r.price, true) },
-            { key: "u", label: "Unrealized", num: true, render: (r) => <span className={signClass(r.unrealized_pnl)}>{signedMoney(r.unrealized_pnl)}</span> },
-          ]} />
-        </div>
-      ))}
+      <div className="row" style={{ justifyContent: "space-between", marginBottom: 8 }}>
+        <h2 style={{ margin: 0 }}>Holding now</h2>
+        <Link to="/holdings" className="small">All holdings →</Link>
+      </div>
+      <div className="grid two">
+        {books.map((b) => (
+          <div key={`${b.bot}-${b.book}`}>
+            <Bot bot={b.bot} />
+            {b.positions.length ? (
+              <p style={{ margin: "6px 0 0" }}>
+                {b.positions.length} {b.positions.length === 1 ? "position" : "positions"}
+                {" "}({b.positions.slice(0, 5).map((p) => p.symbol).join(", ")}{b.positions.length > 5 ? ", …" : ""}),
+                unrealized <span className={signClass(b.totals.unrealized_pnl)}>{signedMoney(b.totals.unrealized_pnl)}</span>,
+                today <span className={signClass(b.totals.today_pnl)}>{signedMoney(b.totals.today_pnl)}</span>.
+              </p>
+            ) : <p className="muted" style={{ margin: "6px 0 0" }}>Flat.</p>}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -187,7 +200,7 @@ export default function Overview({ sections }: { sections: string[] }) {
           {eq.data.books.length > 0 && <EquityChart books={eq.data.books} benchmark={bench.data} />}
         </>
       ) : <Loading error={eq.error} />)}
-      {has(sections, "positions") && <PositionsPanel />}
+      {has(sections, "positions") && <HoldingsPanel />}
       {has(sections, "symbols") && <><HotPanel sections={sections} /><SymbolsPanel /></>}
     </div>
   );

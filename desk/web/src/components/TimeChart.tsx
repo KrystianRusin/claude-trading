@@ -1,6 +1,7 @@
 // A time-series line chart (TradingView lightweight-charts). Colours come from the CSS tokens and the
 // chart is rebuilt when the theme changes. One tooltip lists every series at the crosshair.
-import { ColorType, createChart, CrosshairMode, type IChartApi, type ISeriesApi, type Time, type UTCTimestamp } from "lightweight-charts";
+import { ColorType, createChart, CrosshairMode, type IChartApi, type ISeriesApi, type SeriesMarker, type Time,
+         type UTCTimestamp } from "lightweight-charts";
 import { useEffect, useRef, useState } from "react";
 
 export interface Series {
@@ -11,18 +12,28 @@ export interface Series {
   muted?: boolean; // a reference line (the benchmark): thinner
 }
 
-function cssValue(value: string, el: HTMLElement) {
+// A point event drawn on the first series, such as a config change. Clicking one calls onMarker.
+export interface Marker { id: string; time: string; text: string; title: string }
+
+export function cssValue(value: string, el: HTMLElement) {
   const m = value.match(/^var\((--[\w-]+)\)$/);
   return m ? getComputedStyle(el).getPropertyValue(m[1]).trim() : value;
 }
 
 // Intraday points are shown on the market's clock: lightweight-charts draws times as UTC, so shift each
 // timestamp by its own offset.
-function toTime(t: string): Time {
+export function toTime(t: string): Time {
   if (t.length === 10) return t as Time;
   const offset = t.match(/([+-])(\d\d):(\d\d)$/);
   const shift = offset ? (offset[1] === "-" ? -1 : 1) * (Number(offset[2]) * 3600 + Number(offset[3]) * 60) : 0;
   return (Math.floor(new Date(t).getTime() / 1000) + shift) as UTCTimestamp;
+}
+
+// One spelling for a time however the chart reports it: daily points given as "YYYY-MM-DD" come back from
+// clicks and the crosshair as {year, month, day}.
+function timeKey(t: Time): string {
+  if (typeof t === "object") return `${t.year}-${String(t.month).padStart(2, "0")}-${String(t.day).padStart(2, "0")}`;
+  return String(t);
 }
 
 // The latest value at or before `t`: series sampled at different rates (every minute vs every 5
@@ -31,12 +42,14 @@ function valueAt(points: { t: Time; value: number }[], t: Time) {
   let lo = 0, hi = points.length - 1, found: number | undefined;
   while (lo <= hi) {
     const mid = (lo + hi) >> 1;
-    if (points[mid].t <= t) { found = points[mid].value; lo = mid + 1; } else hi = mid - 1;
+    const at = points[mid].t;
+    const before = typeof at === "number" && typeof t === "number" ? at <= t : timeKey(at) <= timeKey(t);
+    if (before) { found = points[mid].value; lo = mid + 1; } else hi = mid - 1;
   }
   return found;
 }
 
-function useThemeKey() {
+export function useThemeKey() {
   const [key, setKey] = useState(0);
   useEffect(() => {
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
@@ -49,14 +62,17 @@ function useThemeKey() {
   return key;
 }
 
-export function TimeChart({ series, format, height = 280, label }: {
+export function TimeChart({ series, format, height = 280, label, markers, selected, onMarker }: {
   series: Series[]; format: (v: number) => string; height?: number; label: string;
+  markers?: Marker[]; selected?: string | null; onMarker?: (id: string) => void;
 }) {
   const box = useRef<HTMLDivElement>(null);
   const tip = useRef<HTMLDivElement>(null);
   const theme = useThemeKey();
   const formatRef = useRef(format);
   formatRef.current = format;
+  const onMarkerRef = useRef(onMarker);
+  onMarkerRef.current = onMarker;
 
   useEffect(() => {
     const el = box.current;
@@ -82,6 +98,30 @@ export function TimeChart({ series, format, height = 280, label }: {
       line.setData(data);
       return [s, line, data.map((d) => ({ t: d.time, value: d.value }))];
     });
+    // Markers sit on the first series, at the first point on or after their time (a change made in the evening
+    // shows on the next day's close).
+    const atTime = new Map<string, Marker[]>();
+    if (markers?.length && made.length) {
+      const [first, line, data] = made[0];
+      const times = first.points.map((p) => p.time);
+      const placed: SeriesMarker<Time>[] = [];
+      for (const m of [...markers].sort((a, b) => (a.time < b.time ? -1 : 1))) {
+        const i = times.findIndex((t) => t.slice(0, 10) >= m.time.slice(0, 10));
+        if (i < 0) continue;
+        const key = timeKey(data[i].t);
+        atTime.set(key, [...(atTime.get(key) ?? []), m]);
+        const on = m.id === selected;
+        placed.push({ time: data[i].t, position: "aboveBar", shape: on ? "arrowDown" : "circle", id: m.id, text: m.text,
+                      color: cssValue(on ? first.color : "var(--ink-2)", el), size: on ? 1.4 : 0.8 });
+      }
+      placed.sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));
+      line.setMarkers(placed);
+    }
+    chart.subscribeClick((param) => {
+      const hit = typeof param.hoveredObjectId === "string" ? param.hoveredObjectId
+        : param.time !== undefined ? atTime.get(timeKey(param.time))?.[0]?.id : undefined;
+      if (hit) onMarkerRef.current?.(hit);
+    });
     chart.timeScale().fitContent();
     chart.subscribeCrosshairMove((param) => {
       const t = tip.current;
@@ -90,8 +130,8 @@ export function TimeChart({ series, format, height = 280, label }: {
       t.replaceChildren();
       const head = document.createElement("div");
       head.className = "muted";
-      head.textContent = typeof param.time === "string" ? param.time
-        : new Date((param.time as number) * 1000).toISOString().slice(11, 16) + " ET";
+      head.textContent = typeof param.time === "number"
+        ? new Date(param.time * 1000).toISOString().slice(11, 16) + " ET" : timeKey(param.time);
       t.appendChild(head);
       for (const [s, line, data] of made) {
         const d = param.seriesData.get(line) as { value?: number } | undefined;
@@ -108,17 +148,23 @@ export function TimeChart({ series, format, height = 280, label }: {
         row.append(k, v, name);
         t.appendChild(row);
       }
+      for (const m of atTime.get(timeKey(param.time)) ?? []) {
+        const row = document.createElement("div");
+        row.className = "muted";
+        row.textContent = m.title;
+        t.appendChild(row);
+      }
       t.style.display = "block";
       const x = Math.min(param.point.x + 14, el.clientWidth - t.offsetWidth - 4);
       t.style.left = `${Math.max(x, 0)}px`;
       t.style.top = "8px";
     });
     return () => chart.remove();
-  }, [series, theme]);
+  }, [series, theme, markers, selected]);
 
   const empty = series.every((s) => s.points.length === 0);
   return (
-    <div className="chart" style={{ height }} role="img" aria-label={label}>
+    <div className={`chart${markers?.length ? " clickable" : ""}`} style={{ height }} role="img" aria-label={label}>
       {empty ? <div className="empty">No data yet.</div> : <div ref={box} style={{ position: "absolute", inset: 0 }} />}
       <div ref={tip} className="tooltip" style={{ display: "none" }} />
     </div>

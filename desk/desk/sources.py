@@ -6,8 +6,16 @@ stopped after QUERY_SECONDS. Nothing here can write: the bots own their data.
 Where each bot keeps a book's database, relative to its data directory:
 - claude-quant: data/trader.db is the paper book, data/shadow/trader.db the shadow dry run
 - claude-sentiment-trading: data/trader.db holds every book, told apart by the book column
+
+Files read beside the databases:
+- the sentiment bot's score files (data/scores/<date>.json), open positions (data/books/<book>/positions.csv),
+  news (data/news/<date>.jsonl) and lifetime statistics (data/lifetime.json)
+- both bots' journals (data/journal/<date>.md)
+- claude-quant's changelog (data/changelog.md) and review logs (data/reports/review_<date>.log)
 """
+import csv
 import json
+import re
 import sqlite3
 import time
 from contextlib import contextmanager
@@ -22,7 +30,7 @@ QUERY_SECONDS = 2.0
 # Tables and columns the API reads: the shared core migrations 001-003 of both bots.
 REQUIRED = {
     "trades": {"book", "date", "symbol", "side", "qty", "entry_date", "entry_time", "entry_price", "exit_time",
-               "exit_price", "exit_reason", "pnl_usd", "pnl_r", "pnl_pct", "hold_days", "strategy",
+               "exit_price", "exit_reason", "stop_price", "pnl_usd", "pnl_r", "pnl_pct", "hold_days", "strategy",
                "strategy_version", "config_version", "extra"},
     "order_events": {"book", "ts", "date", "event", "symbol", "side", "order_type", "reason"},
     "daily_summary": {"book", "date", "trades", "gross_pnl", "equity_start", "equity_end", "halted"},
@@ -31,7 +39,7 @@ REQUIRED = {
                            "unrealized_pnl"},
     "runs": {"job", "started_at", "ended_at", "status", "exit_code", "error", "git_sha"},
     "versions": {"kind", "name", "version", "sha256", "effective_from", "reason", "content"},
-    "bars": {"symbol", "timeframe", "ts", "close"},
+    "bars": {"symbol", "timeframe", "ts", "open", "high", "low", "close", "volume"},
 }
 
 
@@ -112,3 +120,101 @@ def score_files(settings, since):
             except (OSError, json.JSONDecodeError):
                 continue  # a file being written, or a broken one: skip it
     return out
+
+
+DATE_FILE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+MAX_FILE_BYTES = 200_000  # a journal entry larger than this is cut
+
+
+def journal_dates(settings, bot):
+    """The dates of a bot's journal entries, newest first."""
+    folder = settings.bots[bot]["data_dir"] / "journal"
+    if not folder.is_dir():
+        return []
+    return sorted((f.stem for f in folder.glob("*.md") if DATE_FILE.match(f.stem) and f.is_file()), reverse=True)
+
+
+def journal_text(settings, bot, day):
+    """One journal entry's text, or None. `day` must be a date string from journal_dates."""
+    if not DATE_FILE.match(day):
+        return None
+    return _read_capped(settings.bots[bot]["data_dir"] / "journal" / f"{day}.md")
+
+
+def sentiment_positions(settings, book):
+    """The sentiment bot's open-positions file for a book as dicts; [] when it has none."""
+    f = settings.bots["sentiment"]["data_dir"] / "books" / book / "positions.csv"
+    try:
+        with open(f, newline="", encoding="utf-8") as fh:
+            return list(csv.DictReader(fh))
+    except (OSError, csv.Error, UnicodeDecodeError):
+        return []
+
+
+def _read_capped(path, limit=MAX_FILE_BYTES):
+    try:
+        with open(path, "rb") as fh:
+            return fh.read(limit).decode("utf-8", errors="replace")
+    except OSError:
+        return None
+
+
+def news_days(settings, since):
+    """[(date, path)] of the sentiment bot's daily news files dated `since` or later, oldest first."""
+    folder = settings.bots["sentiment"]["data_dir"] / "news"
+    if not folder.is_dir():
+        return []
+    return sorted((f.stem, f) for f in folder.glob("*.jsonl") if DATE_FILE.match(f.stem) and f.stem >= since.isoformat())
+
+
+def news_articles(path):
+    """The articles in one news file as dicts; broken lines are skipped."""
+    out = []
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                try:
+                    a = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(a, dict):
+                    out.append(a)
+    except OSError:
+        pass
+    return out
+
+
+def news_count(path):
+    """The number of articles in a news file, without parsing them."""
+    try:
+        with open(path, "rb") as fh:
+            return sum(1 for line in fh if line.strip())
+    except OSError:
+        return 0
+
+
+def sentiment_lifetime(settings):
+    """The sentiment bot's data/lifetime.json and when it was written, or (None, None)."""
+    f = settings.bots["sentiment"]["data_dir"] / "lifetime.json"
+    try:
+        return json.loads(f.read_text(encoding="utf-8")), f.stat().st_mtime
+    except (OSError, ValueError):
+        return None, None
+
+
+def quant_changelog(settings):
+    return _read_capped(settings.bots["quant"]["data_dir"] / "changelog.md", 2_000_000)
+
+
+def quant_review_log(settings, day):
+    """The tail of claude-quant's review log for `day` (a date string), or None."""
+    if not DATE_FILE.match(day):
+        return None
+    f = settings.bots["quant"]["data_dir"] / "reports" / f"review_{day}.log"
+    try:
+        size = f.stat().st_size
+        with open(f, "rb") as fh:
+            fh.seek(max(0, size - 20_000))
+            return fh.read().decode("utf-8", errors="replace")
+    except OSError:
+        return None

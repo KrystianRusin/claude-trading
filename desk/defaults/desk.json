@@ -14,10 +14,17 @@
     "compare": true,
     "versions": true,
     "version_content": false,
-    "positions": false,
+    "positions": true,
     "ops": true,
     "ops_errors": false,
-    "prices": false
+    "prices": false,
+    "replay": true,
+    "journal": false,
+    "memory": false,
+    "downloads": true,
+    "research": true,
+    "headlines": false,
+    "agent": false
   },
   "cache_seconds": 30,
   "rate_limit_per_minute": 240

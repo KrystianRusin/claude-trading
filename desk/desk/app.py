@@ -6,6 +6,7 @@ rate_limit_per_minute requests.
 
     .venv/bin/python -m desk.app      serve on the configured host and port
 """
+import re
 import threading
 import time
 from datetime import date
@@ -14,10 +15,11 @@ from typing import Literal
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
 
-from . import config, sources, views
+from . import config, export, models, notebook, research, sources, views
 
 WEB_DIR = config.ROOT / "data" / "web" / "current"  # the build deploy.sh downloaded
 Bot = Literal["quant", "sentiment"]
+DOWNLOAD_NAME = re.compile(r"^[a-z]+\.(csv|parquet)$")
 
 
 class TTLCache:
@@ -90,6 +92,10 @@ def create_app(settings=None):
         response.headers["Referrer-Policy"] = "no-referrer"
         return response
 
+    def get(path, model):
+        """A GET route whose answer is checked against (and limited to) `model`."""
+        return app.get(path, response_model=model, response_model_exclude_unset=True)
+
     def section(name):
         if not settings.public(name):
             raise HTTPException(404, "not found")
@@ -100,21 +106,21 @@ def create_app(settings=None):
         except sources.QueryTimeout:
             raise HTTPException(503, "busy, try again shortly")
 
-    @app.get("/api/meta")
+    @get("/api/meta", models.Meta)
     def meta(request: Request):
         return cached(request, lambda: views.meta(settings))
 
-    @app.get("/api/equity")
+    @get("/api/equity", models.Equity)
     def equity(request: Request):
         section("equity")
         return cached(request, lambda: views.equity(settings))
 
-    @app.get("/api/benchmark")
+    @get("/api/benchmark", models.Benchmark)
     def benchmark(request: Request, start: date | None = None):
         section("prices")
         return cached(request, lambda: views.benchmark(settings, start))
 
-    @app.get("/api/trades")
+    @get("/api/trades", models.Trades)
     def trades(request: Request, bot: Bot | None = None, symbol: str | None = Query(None, max_length=12),
                strategy: str | None = Query(None, max_length=64), exit_reason: str | None = Query(None, max_length=32),
                side: Literal["long", "short"] | None = None, config_version: str | None = Query(None, max_length=16),
@@ -125,12 +131,12 @@ def create_app(settings=None):
             settings, bot=bot, symbol=symbol.upper() if symbol else None, strategy=strategy, exit_reason=exit_reason,
             side=side, config_version=config_version, start=start, end=end, limit=limit, offset=offset))
 
-    @app.get("/api/trades/options")
+    @get("/api/trades/options", models.TradeOptions)
     def trade_options(request: Request):
         section("trades")
         return cached(request, lambda: views.trade_options(settings))
 
-    @app.get("/api/symbols")
+    @get("/api/symbols", models.Symbols)
     def symbols(request: Request, days: int = Query(30, description="7, 30, or 0 for all"),
                 min_trades: int = Query(3, ge=1, le=100)):
         section("symbols")
@@ -138,36 +144,146 @@ def create_app(settings=None):
             raise HTTPException(422, "days must be 7, 30 or 0 (all)")
         return cached(request, lambda: views.symbol_results(settings, days or None, min_trades))
 
-    @app.get("/api/hot")
+    @get("/api/hot", models.Hot)
     def hot(request: Request):
         section("symbols")
         return cached(request, lambda: views.hot(settings))
 
-    @app.get("/api/compare")
+    @get("/api/compare", models.Compare)
     def compare(request: Request, start: date | None = None, end: date | None = None):
         section("compare")
         return cached(request, lambda: views.compare(settings, start, end))
 
-    @app.get("/api/versions")
+    @get("/api/versions", dict[str, models.BotVersions])
     def versions(request: Request):
         section("versions")
         return cached(request, lambda: views.versions(settings, with_content=settings.public("version_content")))
 
-    @app.get("/api/positions")
+    @get("/api/positions", models.Holdings)
     def positions(request: Request):
         section("positions")
-        return cached(request, lambda: views.positions(settings))
+        return cached(request, lambda: views.holdings(settings))
 
-    @app.get("/api/ops")
+    def symbol_param(symbol):
+        symbol = symbol.upper()
+        if not research.valid_symbol(symbol):
+            raise HTTPException(422, "not a symbol")
+        return symbol
+
+    @get("/api/symbols/known", models.KnownSymbols)
+    def known_symbols(request: Request):
+        section("symbols")
+        return cached(request, lambda: research.known_symbols(settings))
+
+    @get("/api/symbol", models.SymbolPage)
+    def symbol(request: Request, symbol: str = Query(..., max_length=10)):
+        section("symbols")
+        sym = symbol_param(symbol)
+        return cached(request, lambda: research.symbol(settings, sym))
+
+    @get("/api/bars", models.Bars)
+    def bars(request: Request, symbol: str = Query(..., max_length=10), timeframe: Literal["1Day", "1Min"] = "1Day",
+             start: date = Query(...), end: date = Query(...)):
+        section("prices")
+        sym = symbol_param(symbol)
+        if end < start or (end - start).days > (1100 if timeframe == "1Day" else 4):
+            raise HTTPException(422, "date range too long: 3 years of daily bars or 5 days of minute bars at most")
+        return cached(request, lambda: research.bars(settings, sym, timeframe, start, end))
+
+    @get("/api/trade", models.TradeDetail)
+    def trade(request: Request, bot: Bot, id: int = Query(..., ge=1)):
+        section("trades")
+        answer = cached(request, lambda: research.trade_detail(settings, bot, id))
+        if answer is None:
+            raise HTTPException(404, "not found")
+        return answer
+
+    @get("/api/headlines", models.Headlines)
+    def headlines(request: Request, symbol: str = Query(..., max_length=10), days: int = Query(30, ge=1, le=90)):
+        section("headlines")
+        sym = symbol_param(symbol)
+        return cached(request, lambda: research.headlines(settings, sym, days))
+
+    @get("/api/research", models.Research)
+    def research_view(request: Request):
+        section("research")
+        if "sentiment" not in settings.bots:
+            raise HTTPException(404, "not found")
+        return cached(request, lambda: research.research(settings))
+
+    @get("/api/agent", models.Agent)
+    def agent(request: Request, bot: Bot):
+        section("agent")
+        return cached(request, lambda: research.agent_activity(settings, bot))
+
+    @get("/api/replay/days", models.ReplayDays)
+    def replay_days(request: Request, bot: Bot):
+        section("replay")
+        return cached(request, lambda: views.replay_days(settings, bot))
+
+    @get("/api/replay", models.Replay)
+    def replay(request: Request, bot: Bot, day: date):
+        section("replay")
+        return cached(request, lambda: views.replay(settings, bot, day))
+
+    @get("/api/versions/impact", models.Impact)
+    def version_impact(request: Request, bot: Bot):
+        section("versions")
+        return cached(request, lambda: views.version_impact(settings, bot))
+
+    @get("/api/versions/diff", models.Diff)
+    def version_diff(request: Request, bot: Bot, id: int = Query(..., ge=1)):
+        section("versions")
+        section("version_content")
+        answer = cached(request, lambda: views.version_diff(settings, bot, id))
+        if answer is None:
+            raise HTTPException(404, "not found")
+        return answer
+
+    @get("/api/disagreements", models.Disagreements)
+    def disagreements(request: Request, days: int = Query(30, ge=1, le=3650)):
+        section("compare")
+        section("scores")
+        return cached(request, lambda: views.disagreement_feed(settings, days))
+
+    @get("/api/journal", models.Journal)
+    def journal(request: Request, bot: Bot, day: date | None = None):
+        section("journal")
+        return cached(request, lambda: notebook.journal(settings, bot, day.isoformat() if day else None))
+
+    @get("/api/memory", models.Memory)
+    def memory(request: Request, bot: Bot):
+        section("memory")
+        return cached(request, lambda: notebook.memory(settings, bot))
+
+    @get("/api/downloads", models.Downloads)
+    def downloads(request: Request):
+        section("downloads")
+        m = export.read_manifest() or {"generated_at": None, "files": []}
+        return m | {"files": [f for f in m["files"] if settings.public(f["section"])]}
+
+    @app.get("/api/downloads/{name}")
+    def download(name: str):
+        section("downloads")
+        m = export.read_manifest() or {"files": []}
+        f = next((f for f in m["files"] if f["name"] == name and settings.public(f["section"])), None)
+        path = export.EXPORT_DIR / name
+        if f is None or not DOWNLOAD_NAME.match(name) or not path.is_file():
+            raise HTTPException(404, "not found")
+        media = "text/csv" if name.endswith(".csv") else "application/vnd.apache.parquet"
+        return FileResponse(path, media_type=media, filename=f"claude-desk-{name}",
+                            headers={"Cache-Control": "public, max-age=300"})
+
+    @get("/api/ops", dict[str, models.BotOps])
     def ops(request: Request):
         section("ops")
         return cached(request, lambda: views.ops(settings, with_errors=settings.public("ops_errors")))
 
-    @app.get("/api/{rest:path}")
+    @app.get("/api/{rest:path}", include_in_schema=False)
     def unknown_api(rest: str):
         raise HTTPException(404, "not found")
 
-    @app.get("/{rest:path}")
+    @app.get("/{rest:path}", include_in_schema=False)
     def web(rest: str):
         """The frontend: a file of the build if it exists, else index.html (the app routes in the browser)."""
         root = WEB_DIR.resolve() if WEB_DIR.exists() else None

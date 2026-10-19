@@ -2,85 +2,52 @@
 // POLL_MS and keeps showing the previous answer while it reloads.
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 
+import type { components } from "./schema";
+
 export const POLL_MS = 30_000;
-export type BotName = "quant" | "sentiment";
 
-export interface Meta {
-  bots: { name: BotName; label: string; books: Record<string, "ok" | "missing" | "unreadable"> }[];
-  books: string[];
-  sections: string[];
-}
-
-export interface EquityBook {
-  bot: BotName;
-  book: string;
-  daily: { date: string; equity: number | null; pnl: number | null; trades: number | null; halted: boolean }[];
-  intraday: { date: string; points: { ts: string; equity: number | null }[] };
-  summary: {
-    as_of: string; equity: number | null; start_equity: number | null; total_return_pct: number | null;
-    today_pnl: number | null; today_return_pct: number | null; max_drawdown_pct: number; days: number;
-    halted_today: boolean;
-  };
-}
-
-export interface Trade {
-  bot: BotName; book: string; date: string; symbol: string; side: string; qty: number | null;
-  entry_date: string | null; entry_time: string | null; entry_price: number | null; exit_time: string | null;
-  exit_price: number | null; exit_reason: string | null; pnl_usd: number | null; pnl_r: number | null;
-  pnl_pct: number | null; hold_days: number | null; strategy: string | null; strategy_version: string | null;
-  config_version: string | null; score?: number; confidence?: number;
-}
-
-export interface TradeStats {
-  trades: number; wins: number; losses: number; win_rate: number | null; total_pnl: number;
-  expectancy_usd: number | null; avg_r: number | null; r_histogram: { from: number; to: number; count: number }[];
-}
-
-export interface TradesAnswer { total: number; offset: number; trades: Trade[]; stats: TradeStats }
-
-export interface SymbolRow { bot: BotName; symbol: string; trades: number; pnl: number; win_rate: number | null; avg_r: number | null }
-
-export interface Hot {
-  quant: { symbol: string; signals: number; entries: number; side: string | null; new_on_watchlist: boolean }[];
-  sentiment?: { symbol: string; heat: number; articles: number; desk_ideas: number; direction: string }[];
-  disagree?: { symbol: string; quant: string; sentiment: string }[];
-}
-
-export interface ReturnStats {
-  days: number; total_return_pct?: number; mean_daily_pct?: number; volatility_annual_pct?: number | null;
-  sharpe?: number | null; max_drawdown_pct?: number; worst_day_pct?: number; best_day_pct?: number;
-}
-
-export interface Compare {
-  bots: Partial<Record<BotName, ReturnStats>>;
-  curves: Partial<Record<BotName, { date: string; return_pct: number }[]>>;
-  difference?: { days: number; first: string | null; last: string | null; mean_diff_pct?: number; low_pct?: number;
-                 high_pct?: number; correlation?: number | null; verdict: string };
-}
-
-export interface Versions {
-  [bot: string]: {
-    changes: { kind: string; name: string; version: string | null; effective_from: string; reason: string | null;
-               removed: boolean; content?: string | null }[];
-    results: { strategy: string | null; strategy_version: string | null; config_version: string | null; first: string;
-               last: string; trades: number; pnl: number; win_rate: number | null; avg_r: number | null }[];
-  };
-}
-
-export interface Run { job: string; started_at: string; ended_at: string | null; status: string; exit_code: number | null;
-                       seconds: number | null; git_sha: string | null; error?: string | null }
-export interface Ops {
-  [bot: string]: { runs: Run[]; jobs: { job: string; runs: number; failures_7d: number; last_ok: string | null;
-                                       last_status: string; last_started: string }[] };
-}
-
-export interface Positions {
-  books: { bot: BotName; book: string; as_of: string;
-           positions: { symbol: string; qty: number; avg_entry_price: number | null; price: number | null;
-                        market_value: number | null; unrealized_pnl: number | null }[] }[];
-}
-
-export interface Benchmark { symbol: string; daily: { date: string; close: number | null }[] }
+// The answers' types are generated from the API's OpenAPI schema (scripts/gen_types.sh writes schema.d.ts);
+// these are short names for them.
+type S = components["schemas"];
+export type BotName = S["MetaBot"]["name"];
+export type Meta = S["Meta"];
+export type EquityBook = S["EquityBook"];
+export type Equity = S["Equity"];
+export type Benchmark = S["Benchmark"];
+export type Trade = S["Trade"];
+export type TradeStats = S["TradeStats"];
+export type TradesAnswer = S["Trades"];
+export type TradeOptions = S["TradeOptions"];
+export type TradeDetail = S["TradeDetail"];
+export type SymbolRow = S["SymbolRow"];
+export type Symbols = S["Symbols"];
+export type Hot = S["Hot"];
+export type KnownSymbols = S["KnownSymbols"];
+export type SymbolPage = S["SymbolPage"];
+export type Bars = S["Bars"];
+export type Headlines = S["Headlines"];
+export type ReturnStats = S["ReturnStats"];
+export type Compare = S["Compare"];
+export type Disagreements = S["Disagreements"];
+export type Versions = Record<string, S["BotVersions"]>;
+export type Change = S["Change"];
+export type WindowStats = S["WindowStats"];
+export type Impact = S["Impact"];
+export type Diff = S["Diff"];
+export type Holding = S["Holding"];
+export type HoldingsBook = S["HoldingsBook"];
+export type Holdings = S["Holdings"];
+export type Replay = S["Replay"];
+export type MemoryStatus = S["MemoryEntry"]["status"];
+export type MemoryEntry = S["MemoryEntry"];
+export type Memory = S["Memory"];
+export type Journal = S["Journal"];
+export type Research = S["Research"];
+export type Agent = S["Agent"];
+export type AgentDay = S["AgentDay"];
+export type Run = S["Run"];
+export type Ops = Record<string, S["BotOps"]>;
+export type Downloads = S["Downloads"];
 
 async function get<T>(path: string): Promise<T> {
   const r = await fetch(path, { headers: { Accept: "application/json" } });

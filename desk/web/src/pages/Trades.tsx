@@ -2,8 +2,10 @@ import { useSearchParams } from "react-router-dom";
 
 import { type BotName, qs, type TradesAnswer, useApi } from "../api";
 import { Histogram } from "../components/Histogram";
+import { TradeDetail } from "../components/TradeDetail";
 import { Bot, DataTable, Loading, Tile } from "../components/ui";
 import { heldFor, money, num, pct, signClass, signedMoney } from "../format";
+import { SymbolLink } from "../sections";
 
 const PAGE = 50;
 const FILTERS = ["bot", "symbol", "strategy", "exit_reason", "side", "start", "end"] as const;
@@ -26,6 +28,11 @@ export default function Trades() {
     next.delete("offset");
     setParams(next, { replace: true });
   };
+  const setTrade = (v: string) => {  // opening a trade keeps the page
+    const next = new URLSearchParams(params);
+    if (v) next.set("trade", v); else next.delete("trade");
+    setParams(next, { replace: true });
+  };
   const page = (o: number) => { const next = new URLSearchParams(params); next.set("offset", String(o)); setParams(next); };
   const select = (k: keyof Options & (typeof FILTERS)[number], label: string, show = (v: string) => v) => (
     <select aria-label={label} value={filters[k]} onChange={(e) => set(k, e.target.value)}>
@@ -34,6 +41,7 @@ export default function Trades() {
     </select>
   );
   const s = res.data?.stats;
+  const picked = (params.get("trade") ?? "").match(/^(quant|sentiment)-(\d+)$/);
   return (
     <div className="stack">
       <div>
@@ -60,6 +68,7 @@ export default function Trades() {
             <Tile label="Total P&L" value={<span className={signClass(s.total_pnl)}>{signedMoney(s.total_pnl)}</span>} />
             <Tile label="Per trade" value={signedMoney(s.expectancy_usd)} delta={`avg ${num(s.avg_r)}R`} deltaClass="muted" />
           </div>
+          {picked && <TradeDetail bot={picked[1]} id={Number(picked[2])} onClose={() => setTrade("")} />}
           <div className="card">
             <h2>Results in R</h2>
             <Histogram bins={s.r_histogram} label="How many trades ended at each result in R" />
@@ -68,7 +77,7 @@ export default function Trades() {
             <DataTable rows={res.data.trades} empty="No trades match these filters." columns={[
               { key: "date", label: "Exit date", render: (t) => t.date },
               { key: "bot", label: "Bot", render: (t) => <Bot bot={t.bot as BotName} /> },
-              { key: "symbol", label: "Symbol", render: (t) => <strong>{t.symbol}</strong> },
+              { key: "symbol", label: "Symbol", render: (t) => <SymbolLink symbol={t.symbol} /> },
               { key: "side", label: "Side", render: (t) => t.side },
               { key: "entry", label: "Entry", num: true, render: (t) => money(t.entry_price, true) },
               { key: "exit", label: "Exit", num: true, render: (t) => money(t.exit_price, true) },
@@ -77,6 +86,7 @@ export default function Trades() {
               { key: "r", label: "R", num: true, render: (t) => num(t.pnl_r) },
               { key: "held", label: "Held", render: (t) => t.hold_days ? `${t.hold_days} days` : heldFor(t.entry_time, t.exit_time) },
               { key: "v", label: "Version", render: (t) => <span className="muted small">{t.strategy} v{t.strategy_version} · config {t.config_version}</span> },
+              { key: "d", label: "", render: (t) => <button className="linkish" onClick={() => setTrade(`${t.bot}-${t.id}`)}>details</button> },
             ]} />
             <div className="pager">
               <button disabled={offset === 0} onClick={() => page(Math.max(0, offset - PAGE))}>Newer</button>

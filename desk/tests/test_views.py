@@ -32,7 +32,7 @@ def test_equity_summary(settings):
     assert s["start_equity"] == 100_000
     assert s["today_pnl"] == pytest.approx(25 + last_close - q["daily"][-2]["equity"])  # since the day's start
     assert s["max_drawdown_pct"] == pytest.approx(-0.5, abs=0.01)
-    assert books[("sentiment", "paper")]["intraday"]["points"] == []
+    assert [p["ts"] for p in books[("sentiment", "paper")]["intraday"]["points"]] == [f"{TODAY}T10:02:00-04:00"]
 
 
 def test_max_drawdown():
@@ -42,13 +42,13 @@ def test_max_drawdown():
 
 def test_trades_filters_and_stats(settings):
     all_ = views.trades(settings)
-    assert all_["total"] == 11 and all_["trades"][0]["date"] >= all_["trades"][-1]["date"]
+    assert all_["total"] == 12 and all_["trades"][0]["date"] >= all_["trades"][-1]["date"]
     q = views.trades(settings, bot="quant", symbol="QQQ")
     assert q["total"] == 3 and q["stats"]["total_pnl"] == 120 and q["stats"]["win_rate"] == pytest.approx(2 / 3, abs=1e-4)
     assert views.trades(settings, exit_reason="sl")["total"] == 3
     assert views.trades(settings, side="short")["total"] == 1
-    page = views.trades(settings, limit=2, offset=10)
-    assert len(page["trades"]) == 1 and page["total"] == 11
+    page = views.trades(settings, limit=2, offset=11)
+    assert len(page["trades"]) == 1 and page["total"] == 12
     t = views.trades(settings, bot="sentiment", symbol="NKE")["trades"][0]
     assert (t["score"], t["confidence"]) == (2, 0.9) and "prompt_sha256" not in t and "reason" not in t
 
@@ -67,7 +67,7 @@ def test_symbol_results(settings):
     nke = rows[0]
     assert (nke["trades"], nke["pnl"], nke["avg_r"]) == (3, 300, pytest.approx(0.5))
     assert views.symbol_results(settings, days=7, min_trades=1)["symbols"]  # a window still finds trades
-    assert len(views.symbol_results(settings, days=None, min_trades=1)["symbols"]) == 5
+    assert len(views.symbol_results(settings, days=None, min_trades=1)["symbols"]) == 6
 
 
 def test_hot_right_now_and_disagreement(settings):
@@ -103,7 +103,7 @@ def test_return_stats_on_a_known_series():
 def test_versions(settings):
     v = views.versions(settings)
     changes = v["quant"]["changes"]
-    assert [c["kind"] for c in changes] == ["config", "watchlist", "config"]
+    assert [c["kind"] for c in changes] == ["config", "watchlist", "memory", "memory", "config"]
     assert changes[0]["removed"] and changes[0]["name"] == "shadow" and "content" not in changes[0]
     results = {(r["strategy_version"], r["config_version"]): r for r in v["quant"]["results"]}
     assert results[("1", "3")]["trades"] == 4 and results[("2", "3")]["trades"] == 3

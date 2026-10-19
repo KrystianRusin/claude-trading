@@ -1,4 +1,5 @@
 """Fake data folders for both bots, built with the bots' shared migrations (copied in tests/schema/)."""
+import csv
 import json
 import sqlite3
 from datetime import date, timedelta
@@ -40,6 +41,19 @@ def daily(conn, book, returns, start=100_000.0):
     return equity
 
 
+QUANT_MEMORY_1 = """# Trading memory\n\n## Active\n\n### M-1: Late breakouts fail\n- Status: hypothesis\n
+- Since: 2026-10-06 | Last reviewed: 2026-10-06\n- Scope: all\n- Query: `entry_minute_after_open >= 60`\n
+- Evidence: 3 trades\n- Implication: watch\n\n## Retired\n\n_None._\n"""
+QUANT_MEMORY_2 = """# Trading memory\n\n## Active\n\n### M-1: Late breakouts fail\n- Status: supported\n
+- Since: 2026-10-06 | Last reviewed: 2026-10-09\n- Scope: all\n- Query: `entry_minute_after_open >= 60`\n
+- Evidence: 14 trades over 10 days\n- Implication: watch\n\n## Retired\n\n### M-2: Mondays are weak\n- Status: hypothesis\n
+- Since: 2026-10-06 | Last reviewed: 2026-10-09\n- Retired: 2026-10-09, contradicted\n"""
+SENTIMENT_MEMORY_1 = [{"id": "M-1", "title": "Earnings beats drift", "status": "hypothesis", "scope": "scoring",
+                       "since": "2026-10-07", "last_reviewed": "2026-10-07", "query": "scores: score >= 2",
+                       "evidence": "early", "implication": "", "secret_field": "not public"}]
+SENTIMENT_MEMORY_2 = [dict(SENTIMENT_MEMORY_1[0], status="supported", last_reviewed="2026-10-13")]
+
+
 def build_quant(folder):
     conn = create_db(folder / "trader.db")
     last = daily(conn, "paper", [0.01, -0.005, 0.002, 0.003, -0.001, 0.004, 0.0, 0.002])
@@ -65,6 +79,19 @@ def build_quant(folder):
                positions=1)
         insert(conn, "position_snapshots", book="paper", ts=ts, symbol="SPY", qty=10, avg_entry_price=100, price=101,
                market_value=1010, unrealized_pnl=10)
+    insert(conn, "orders", book="paper", order_id="o-secret-1", client_order_id="pt-x", symbol="SPY", side="buy", qty=10,
+           order_type="market", status="filled", filled_qty=10, filled_avg_price=100, filled_at=f"{TODAY}T09:46:00-04:00",
+           updated_at=f"{TODAY}T09:46:00-04:00")
+    insert(conn, "orders", book="paper", order_id="o-secret-2", parent_order_id="o-secret-1", symbol="SPY", side="sell",
+           qty=10, order_type="stop", status="new", stop_price=99, updated_at=f"{TODAY}T09:46:00-04:00")
+    insert(conn, "orders", book="paper", order_id="o-secret-3", parent_order_id="o-secret-1", symbol="SPY", side="sell",
+           qty=10, order_type="limit", status="held", limit_price=103, updated_at=f"{TODAY}T09:46:00-04:00")
+    insert(conn, "orders", book="paper", order_id="o-secret-4", symbol="QQQ", side="buy", qty=5, order_type="market",
+           status="filled", filled_qty=5, filled_avg_price=400, filled_at=f"{DAYS[-2]}T09:50:00-04:00",
+           updated_at=f"{DAYS[-2]}T09:50:00-04:00")
+    for day, memory in ((DAYS[1], QUANT_MEMORY_1), (DAYS[4], QUANT_MEMORY_2)):
+        insert(conn, "versions", kind="memory", name="", version=None, sha256=f"m{day}", effective_from=f"{day}T17:30:00-04:00",
+               reason="review", content=memory)
     insert(conn, "runs", job="trader", started_at=f"{TODAY}T09:00:00-04:00", ended_at=f"{TODAY}T15:50:00-04:00",
            status="ok", exit_code=0, git_sha="abc1234")
     insert(conn, "runs", job="review", started_at=f"{TODAY}T17:00:00-04:00", ended_at=f"{TODAY}T17:20:00-04:00",
@@ -76,8 +103,26 @@ def build_quant(folder):
            reason="review", content=json.dumps(watchlist))
     insert(conn, "versions", kind="config", name="shadow", version=None, sha256="", effective_from=f"{TODAY}T17:30:00-04:00",
            reason="review", content=None)
+    for minute in range(570, 640):  # 09:30 to 10:39, around the first SPY trade
+        insert(conn, "bars", symbol="SPY", timeframe="1Min", ts=f"{DAYS[0]}T{minute // 60:02d}:{minute % 60:02d}:00-04:00",
+               open=100, high=101, low=99, close=100 + (minute - 570) / 100, volume=1000)
+    insert(conn, "orders", book="paper", order_id="o-secret-10", symbol="SPY", side="buy", qty=10, order_type="market",
+           status="filled", filled_qty=10, filled_avg_price=100, filled_at=f"{DAYS[0]}T09:46:00-04:00",
+           updated_at=f"{DAYS[0]}T09:46:00-04:00")
+    insert(conn, "orders", book="paper", order_id="o-secret-11", parent_order_id="o-secret-10", symbol="SPY", side="sell",
+           qty=10, order_type="limit", status="filled", limit_price=101.5, updated_at=f"{DAYS[0]}T10:30:00-04:00")
     conn.commit()
     conn.close()
+    (folder / "changelog.md").write_text(f"# Changelog\n\n## {TODAY} (review)\n\nRaised the range filter.\n\n"
+                                         f"## {DAYS[-2]}\n\nNo change.\n")
+    (folder / "reports").mkdir()
+    (folder / "reports" / f"review_{TODAY}.log").write_text(
+        f"model text {SECRET}\nGUARD: 2 problem(s)\n=== guard failed; changes reverted\n")
+    journal = folder / "journal"
+    journal.mkdir()
+    (journal / f"{DAYS[-2]}.md").write_text("# Journal\n\nQuiet day.")
+    (journal / f"{TODAY}.md").write_text("# Journal\n\n- SPY broke out\n- **one** trade")
+    (journal / "notes.md").write_text("not a journal entry")
     # the shadow book has its own file
     conn = create_db(folder / "shadow" / "trader.db")
     daily(conn, "dry_run", [0.02, 0.01])
@@ -99,6 +144,27 @@ def build_sentiment(folder):
            entry_time="x", pnl_usd=1e6, strategy="sentiment_swing")
     for day in DAYS:
         insert(conn, "bars", symbol="SPY", timeframe="1Day", ts=day.isoformat(), close=500 + DAYS.index(day))
+        insert(conn, "bars", symbol="NKE", timeframe="1Day", ts=day.isoformat(), open=100, high=105, low=98,
+               close=100 + DAYS.index(day), volume=5e6)
+    insert(conn, "trades", book="paper", date=TODAY.isoformat(), symbol="AMD", side="long", qty=10,
+           entry_date=DAYS[-2].isoformat(), entry_time=f"{DAYS[-2]}T09:45:00-04:00", entry_price=150, exit_price=153,
+           exit_time=f"{TODAY}T09:45:00-04:00", exit_reason="time", pnl_usd=30, pnl_r=0.5, strategy="theme",
+           strategy_version="1", config_version="2", extra="{}")
+    for ts, rows in ((f"{DAYS[-2]}T16:00:00-04:00", [("NKE", 50, 100, 104)]),
+                     (f"{TODAY}T10:02:00-04:00", [("NKE", 50, 100, 106), ("TSLA", -20, 250, 240)])):
+        insert(conn, "equity_snapshots", book="paper", ts=ts, equity=100_000, long_value=5300, short_value=-4800,
+               positions=len(rows))
+        for sym, qty, entry, price in rows:
+            insert(conn, "position_snapshots", book="paper", ts=ts, symbol=sym, qty=qty, avg_entry_price=entry, price=price,
+                   market_value=qty * price, unrealized_pnl=(price - entry) * qty)
+    insert(conn, "orders", book="paper", order_id="s-secret-1", symbol="TSLA", side="sell", qty=20, order_type="market",
+           status="filled", filled_qty=20, filled_avg_price=250, filled_at=f"{TODAY}T09:45:00-04:00",
+           updated_at=f"{TODAY}T09:45:00-04:00")
+    insert(conn, "orders", book="paper", order_id="s-secret-2", parent_order_id="s-secret-1", symbol="TSLA", side="buy",
+           qty=20, order_type="stop", status="new", stop_price=262.5, updated_at=f"{TODAY}T09:45:00-04:00")
+    for day, entries in ((DAYS[2], SENTIMENT_MEMORY_1), (DAYS[6], SENTIMENT_MEMORY_2)):
+        insert(conn, "versions", kind="memory", name="", version="v" + str(day), sha256=f"m{day}",
+               effective_from=f"{day}T19:50:00-04:00", reason="memory save", content=json.dumps(entries))
     insert(conn, "runs", job="snapshot", started_at=f"{TODAY}T10:02:00-04:00", ended_at=f"{TODAY}T10:02:04-04:00",
            status="ok", exit_code=0)
     insert(conn, "runs", job="score", started_at=f"{TODAY}T06:30:00-04:00", status="lost")
@@ -114,6 +180,32 @@ def build_sentiment(folder):
                                    "confidence": 0.7, "reason": "model text"}]}}
         (scores / f"{day}.json").write_text(json.dumps(rec))
     (scores / "2026-10-15.json.tmp").write_text("{broken")
+    book = folder / "books" / "paper"
+    book.mkdir(parents=True)
+    with open(book / "positions.csv", "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=["symbol", "side", "qty", "status", "entry_date", "entry_price", "entry_order_id",
+                                          "stop_price", "score", "confidence", "strategy", "reason", "pair"])
+        w.writeheader()
+        w.writerow({"symbol": "NKE", "side": "long", "qty": 50, "status": "open", "entry_date": DAYS[-4].isoformat(),
+                    "entry_price": 100, "entry_order_id": "s-secret-0", "stop_price": 95, "score": 2, "confidence": 0.9,
+                    "strategy": "sentiment_swing", "reason": "model text", "pair": ""})
+    journal = folder / "journal"
+    journal.mkdir()
+    (journal / f"{TODAY}.md").write_text("# Sentiment journal\n\nScores were mixed.")
+    news = folder / "news"
+    news.mkdir()
+    for day, n in ((DAYS[-2], 3), (TODAY, 2)):
+        with open(news / f"{day}.jsonl", "w") as f:
+            for i in range(n):
+                f.write(json.dumps({"id": f"{day}-{i}", "published_at": f"{day}T0{7 + i}:00:00Z", "symbols": ["NKE", "ADDYY"],
+                                    "headline": f"Nike headline {i}", "summary": "full article text, not public",
+                                    "source": "benzinga", "url": "javascript:alert(1)" if i == 1 else f"https://example.com/{i}"}) + "\n")
+            f.write("{broken\n")
+    (folder / "lifetime.json").write_text(json.dumps({
+        "days": 8, "trades": 5, "calibration": {"scores": 40, "by_score": {
+            "-2": {"n": 10, "mean_fwd_return_pct": -0.8, "hit_rate": 0.6}, "+2": {"n": 30, "mean_fwd_return_pct": 1.1, "hit_rate": 0.63}}},
+        "by": {"score": {"2": {"n": 3, "win_rate": 0.66, "pnl_usd": 300, "expectancy_r": 0.5, "range_95": [0.1, 0.9],
+                               "secret": "x"}}, "confidence": {}}}))
 
 
 @pytest.fixture
@@ -146,3 +238,11 @@ def fixed_day(monkeypatch):
     from desk import views
 
     monkeypatch.setattr(views, "current_day", lambda: TODAY)
+
+
+@pytest.fixture(autouse=True)
+def export_dir(monkeypatch, tmp_path):
+    from desk import export
+
+    monkeypatch.setattr(export, "EXPORT_DIR", tmp_path / "exports")
+    return tmp_path / "exports"
