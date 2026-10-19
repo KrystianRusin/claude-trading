@@ -137,13 +137,20 @@ elif ask "Tailscale is not installed. Install it now (official script from tails
 else
   echo "Skipped. Install later with: curl -fsSL https://tailscale.com/install.sh | sh"
 fi
+# This machine's address on the tailnet, which Funnel publishes (e.g. claude-desk.example.ts.net).
+dns=$(tailscale status --json 2>/dev/null | "$PY" -c 'import json, sys; print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))' \
+      2>/dev/null || true)
+public="https://${dns:-<this-machine>.<tailnet>.ts.net}"
+if tailscale funnel status 2>/dev/null | grep -q "127.0.0.1:$PORT"; then
+  echo "Published: $public"
+fi
 cat <<EOF
 
 To make the dashboard public (only when you want to):
   1. sudo tailscale up                     log this Pi into your tailnet (once)
   2. In https://login.tailscale.com/admin: DNS -> enable HTTPS certificates, and in Access
      controls add the "funnel" node attribute for this machine (the admin page offers a button).
-  3. sudo tailscale funnel --bg $PORT       publish http://127.0.0.1:$PORT at https://<this-pi>.<tailnet>.ts.net
+  3. sudo tailscale funnel --bg $PORT       publish http://127.0.0.1:$PORT at $public
 To stop publishing: sudo tailscale funnel --https=443 off
 Before publishing, check what is public: .venv/bin/python -m desk.config
 EOF

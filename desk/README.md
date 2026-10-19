@@ -6,6 +6,8 @@ A read-only dashboard for two paper-trading bots,
 the same Raspberry Pi, reads each bot's SQLite database, and can be published with Tailscale Funnel.
 The owner chooses which parts are public.
 
+Live: https://krystianrusin.github.io/desk/
+
 - The API is FastAPI with GET routes only. Every database is opened read-only, and queries are stopped
   after 2 seconds. There is no generic query endpoint: each view picks its fields in code, and every
   route has a pydantic response model.
