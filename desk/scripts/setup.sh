@@ -17,6 +17,14 @@ SERVICE="claude-desk"
 step() { printf '\n==> %s\n' "$*"; }
 ask() { local reply; read -r -p "$1 [y/N] " reply; [[ "$reply" =~ ^[Yy]$ ]]; }
 ask_path() { local reply; read -r -p "$1 [$2] " reply; echo "${reply:-$2}"; }
+# The data folder of the bot checked out in a folder of $HOME holding `marker`, else `fallback`.
+find_data() {
+  local marker="$1" fallback="$2" d
+  for d in "$HOME"/*/; do
+    [ -f "$d$marker" ] && { echo "${d%/}/data"; return; }
+  done
+  echo "$fallback"
+}
 
 step "Python virtual environment and packages"
 python3 -c 'import sys; sys.exit(sys.version_info < (3, 11))' || { echo "Python 3.11+ required"; exit 1; }
@@ -30,8 +38,8 @@ mkdir -p data
 if [ -f data/desk.json ]; then
   echo "OK: data/desk.json exists; edit it to change paths or what is public"
 else
-  quant=$(ask_path "claude-quant data folder" "$HOME/claude-trade/data")
-  sentiment=$(ask_path "claude-sentiment-trading data folder" "$HOME/claude-sentiment-trading/data")
+  quant=$(ask_path "claude-quant data folder" "$(find_data review/guard.py "$HOME/claude-quant/data")")
+  sentiment=$(ask_path "claude-sentiment-trading data folder" "$(find_data src/score.py "$HOME/claude-sentiment-trading/data")")
   "$PY" - "$quant" "$sentiment" <<'EOF'
 import json, sys
 json.dump({"bots": {"quant": {"data_dir": sys.argv[1]}, "sentiment": {"data_dir": sys.argv[2]}}},
@@ -89,6 +97,9 @@ Nice=10
 CPUQuota=50%
 MemoryMax=300M
 NoNewPrivileges=yes
+# systemd before 254 applies the mount options below to a user service only inside a user namespace;
+# without it they are silently ignored (checked after the start below).
+PrivateUsers=yes
 PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=read-only
@@ -106,6 +117,12 @@ systemctl --user daemon-reload
 systemctl --user enable --now "$SERVICE"
 systemctl --user restart "$SERVICE"
 sleep 2
+pid=$(systemctl --user show -p MainPID --value "$SERVICE")
+if [ "$(readlink "/proc/$pid/ns/mnt")" = "$(readlink /proc/self/ns/mnt)" ]; then
+  echo "The service is running without its sandbox (this systemd ignored the mount options). Stopping it."
+  systemctl --user stop "$SERVICE"
+  exit 1
+fi
 if curl -fsS -m 5 "http://127.0.0.1:$PORT/api/meta" >/dev/null; then
   echo "OK: http://127.0.0.1:$PORT (only this machine; see Tailscale below to publish it)"
 else
